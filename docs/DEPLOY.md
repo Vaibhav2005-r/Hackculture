@@ -2,22 +2,27 @@
 
 **Free option: Hugging Face Spaces** (section 0). Paid option with a persistent disk: Render + Cloudflare (sections 1-2).
 
-## 0. Free: Hugging Face Space (16 GB RAM, 2 CPU, public HTTPS link)
+## 0. Free: Hugging Face Space (Gradio SDK; 16 GB RAM, 2 CPU, public HTTPS link)
 
-1. huggingface.co → **New Space** → name it (e.g. `lipisetu`) → **SDK: Docker** → blank template → create.
+Docker Spaces are a paid feature, but a **Gradio-SDK Space can run any Python app**, so we run LipiSetu's FastAPI server
+from a tiny `app.py` (see `deploy/hf_app.py`). Gradio itself is not used.
+
+1. huggingface.co → **New Space** → name `lipisetu` → **SDK: Gradio** → template **Blank** → hardware **CPU Basic**
+   (not ZeroGPU) → **Public** → Create.
 2. huggingface.co/settings/tokens → **New token** with **Write** access.
-3. From the repository root on your computer:
+3. From the repository root on your computer (Node.js needed; the script builds the website):
    `HF_TOKEN=hf_xxxxxxxx sh deploy/push_to_hf_space.sh <your-hf-username>/lipisetu`
-   (the script adds the Space metadata to a copy of the README and pushes; your token is never stored in git).
-4. Space → **Settings → Variables and secrets**: add secrets `JWT_SECRET` (any long random string),
-   `ADMIN_PASSWORD` (your private admin password), and optionally `NVIDIA_API_KEY`; add variables
-   `DEMO_ROLES=contributor,curator,viewer`, `EMBEDDED_WORKER=true`.
-5. The first build takes about 10 minutes. The app then seeds the sample folios and is live at
+4. Space → **Settings → Variables and secrets**: secrets `JWT_SECRET` (long random string) and `ADMIN_PASSWORD`
+   (your private admin password), optional secret `NVIDIA_API_KEY`; variables `DEMO_ROLES=contributor,curator,viewer`,
+   `EMBEDDED_WORKER=true`.
+5. The first build takes several minutes (it installs the Python packages, then seeds the sample folios). Live at
    `https://<your-hf-username>-lipisetu.hf.space`.
 
-Limits to know: the Space's disk is **not persistent**, so uploads and corrections reset whenever the Space restarts
-(it also sleeps after about 48 hours without visitors and takes a minute or two to wake and re-seed). That is fine
-for a demo, not for real data. The Docker build has not been run on the development machine.
+Tested locally (no PyTorch, fresh database): the entry point seeds the demo data, serves the website and API, shows only
+the allowed demo buttons and accepts only the private admin password. Not tested: the Hugging Face build itself.
+
+Limits: the Space disk is **not persistent**, so uploads and corrections reset when the Space restarts; it sleeps after
+about 48 hours without visitors and re-seeds when it wakes (a minute or two). Fine for a demo, not for real data.
 
 # Render, with Cloudflare in front (paid, persistent disk)
 
