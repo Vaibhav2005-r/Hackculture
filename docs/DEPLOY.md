@@ -1,4 +1,25 @@
-# Hosting LipiSetu on Render, with Cloudflare in front
+# Hosting LipiSetu
+
+**Free option: Hugging Face Spaces** (section 0). Paid option with a persistent disk: Render + Cloudflare (sections 1-2).
+
+## 0. Free: Hugging Face Space (16 GB RAM, 2 CPU, public HTTPS link)
+
+1. huggingface.co → **New Space** → name it (e.g. `lipisetu`) → **SDK: Docker** → blank template → create.
+2. huggingface.co/settings/tokens → **New token** with **Write** access.
+3. From the repository root on your computer:
+   `HF_TOKEN=hf_xxxxxxxx sh deploy/push_to_hf_space.sh <your-hf-username>/lipisetu`
+   (the script adds the Space metadata to a copy of the README and pushes; your token is never stored in git).
+4. Space → **Settings → Variables and secrets**: add secrets `JWT_SECRET` (any long random string),
+   `ADMIN_PASSWORD` (your private admin password), and optionally `NVIDIA_API_KEY`; add variables
+   `DEMO_ROLES=contributor,curator,viewer`, `EMBEDDED_WORKER=true`.
+5. The first build takes about 10 minutes. The app then seeds the sample folios and is live at
+   `https://<your-hf-username>-lipisetu.hf.space`.
+
+Limits to know: the Space's disk is **not persistent**, so uploads and corrections reset whenever the Space restarts
+(it also sleeps after about 48 hours without visitors and takes a minute or two to wake and re-seed). That is fine
+for a demo, not for real data. The Docker build has not been run on the development machine.
+
+# Render, with Cloudflare in front (paid, persistent disk)
 
 LipiSetu is one container: the FastAPI server, the OCR worker and the built website. Files used: `Dockerfile`,
 `start.sh`, `render.yaml`. **The Docker build has not been run on the development machine (Docker is not installed
