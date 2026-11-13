@@ -27,7 +27,8 @@ log = logging.getLogger("seed")
 SEED = Path(__file__).resolve().parent.parent / "seed"
 
 # Demo accounts for local testing and judging. Change or remove them before any real deployment.
-DEMO_PASSWORD = "Lipi@2026"
+DEMO_PASSWORD = get_settings().demo_password
+ADMIN_PASSWORD = get_settings().admin_password or DEMO_PASSWORD
 USERS = [
     ("admin@lipisetu.in", "Aditi Admin", "admin"),
     ("curator@lipisetu.in", "Kavya Curator", "curator"),
@@ -74,7 +75,7 @@ def _ensure_empty_or_reset(reset: bool) -> bool:
 def seed_users(db) -> dict[str, User]:
     out = {}
     for email, name, role in USERS:
-        u = User(email=email, name=name, role=role, password_hash=hash_password(DEMO_PASSWORD))
+        u = User(email=email, name=name, role=role, password_hash=hash_password(ADMIN_PASSWORD if role == "admin" else DEMO_PASSWORD))
         db.add(u)
         out[role] = u
     db.flush()

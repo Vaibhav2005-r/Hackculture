@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { AuthShell } from "../components/AuthShell";
 import { Button, Field, Input } from "../components/ui";
 import { useAuth } from "../lib/auth";
+import { useMeta } from "../lib/queries";
 
 const DEMO = [
   { role: "Admin", email: "admin@lipisetu.in" },
@@ -16,6 +17,7 @@ const DEMO_PASSWORD = "Lipi@2026";
 
 export function Login() {
   const { user, login } = useAuth();
+  const meta = useMeta();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
@@ -85,7 +87,7 @@ export function Login() {
         <span className="h-px flex-1 bg-line" /> Try a demo account <span className="h-px flex-1 bg-line" />
       </div>
       <div className="grid grid-cols-2 gap-2">
-        {DEMO.map((d) => (
+        {DEMO.filter((d) => !meta.data || meta.data.demo_roles.includes(d.role.toLowerCase())).map((d) => (
           <Button key={d.role} variant="secondary" loading={busy === d.role} onClick={() => signIn(d.email, DEMO_PASSWORD, d.role)}>
             {d.role}
           </Button>

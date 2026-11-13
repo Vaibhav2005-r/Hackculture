@@ -42,6 +42,7 @@ def meta():
         "engines": [e.describe() for e in all_engines()],
         "translation": provider_status(),
         "online": runtime.status(),
+        "demo_roles": [r.strip() for r in get_settings().demo_roles.split(",") if r.strip()],
         "transliteration_targets": ["iast", "devanagari", "gujarati", "itrans"],
     }
 

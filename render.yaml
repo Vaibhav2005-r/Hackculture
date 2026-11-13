@@ -1,0 +1,27 @@
+# Render Blueprint: New + > Blueprint, pick this repository.  See docs/DEPLOY.md.
+services:
+  - type: web
+    name: lipisetu
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # The OCR models need about 1.5 GB of RAM: use "standard" (2 GB).  "starter" (512 MB) will run out of memory.
+    plan: standard
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    disk:
+      name: lipisetu-data
+      mountPath: /app/backend/data   # SQLite database, uploaded images, runtime switches
+      sizeGB: 5
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_PASSWORD        # private password for the admin account (shown in the dashboard once generated)
+        generateValue: true
+      - key: DEMO_ROLES            # one-click demo buttons on the login page (no admin on a public site)
+        value: contributor,curator,viewer
+      - key: EMBEDDED_WORKER
+        value: "true"
+      - key: NVIDIA_API_KEY        # optional: enables the online reading switch. Set it in the dashboard, never in git.
+        sync: false
+      - key: OFFLINE_MODE          # set to "true" to forbid any online service whatever the dashboard says
+        value: "false"

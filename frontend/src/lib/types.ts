@@ -189,6 +189,7 @@ export interface Meta {
   scripts: { id: string; label: string }[];
   engines: Engine[];
   translation: { available: boolean; provider: string | null; message: string };
+  demo_roles: string[];
   online: { provider: string; model: string; configured: boolean; offline_mode: boolean; enabled: boolean; active: boolean; note: string };
   transliteration_targets: string[];
 }

@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     nvidia_timeout_s: float = 150.0  # per attempt; must stay well below job_lease_seconds
     offline_mode: bool = False  # hard switch: never contact any online service
+    # Demo accounts created by `python -m scripts.seed`.  On a public server give the admin a private
+    # password and show only the one-click logins you want people to use.
+    demo_password: str = "Lipi@2026"
+    admin_password: str = ""  # empty = same as demo_password
+    demo_roles: str = "admin,curator,contributor,viewer"  # which one-click demo buttons the login page offers
     # A page is reported PARTIAL (not COMPLETE) when most text boxes were rejected or the read is weak.
     ocr_max_dropped_fraction: float = 0.5
     ocr_min_mean_confidence: float = 0.5

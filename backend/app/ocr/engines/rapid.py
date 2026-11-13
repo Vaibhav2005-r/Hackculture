@@ -28,7 +28,6 @@ def _lang_for(script: str):
         "latin": LangRec.EN,
         "tamil": LangRec.TA,
         "telugu": LangRec.TE,
-        "kannada": LangRec.KA,
     }.get(script)
 
 
@@ -46,7 +45,8 @@ class RapidEngine(OCREngine):
         return _IMPORT_ERROR is None
 
     def supported_scripts(self) -> set[str]:
-        return {"devanagari", "latin", "tamil", "telugu", "kannada"}
+        # The PP-OCRv5 mobile model ships no Kannada recogniser; advertising it made Kannada jobs crash.
+        return {"devanagari", "latin", "tamil", "telugu"}
 
     def _engine(self, script: str):
         if script in self._engines:
