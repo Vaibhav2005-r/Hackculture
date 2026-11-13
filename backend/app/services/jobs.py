@@ -11,6 +11,7 @@ import logging
 from datetime import timedelta
 
 from sqlalchemy import or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -48,10 +49,18 @@ def enqueue(
         created_by=user_id,
         max_attempts=get_settings().job_max_attempts,
     )
-    db.add(job)
-    if page_id:
-        db.execute(update(Page).where(Page.id == page_id).values(status="queued"))
-    db.flush()
+    try:
+        # SAVEPOINT: if a concurrent request wins the unique idempotency key, only this insert is undone.
+        with db.begin_nested():
+            db.add(job)
+            if page_id:
+                db.execute(update(Page).where(Page.id == page_id).values(status="queued"))
+            db.flush()
+    except IntegrityError:
+        existing = db.scalar(select(Job).where(Job.idempotency_key == idempotency_key)) if idempotency_key else None
+        if existing is None:
+            raise
+        return existing, False
     return job, True
 
 

@@ -28,18 +28,20 @@ Three differentiators (say them in this order, every time):
 | Training data | 4,374 verse crops → 8,745 line images (real) + 30,000 synthetic Hindi lines | built by `scripts/build_ocr_dataset.py` |
 | Engine head-to-head, real Sanskrit test lines (400, original resolution) | **ours 13.1% · PP-OCRv5 27.7% · ensemble ("auto") 13.1%** (2.1× fewer errors than the stock engine) | measured (`scripts/eval_engines.py`) |
 | Engine head-to-head, synthetic Hindi lines | PP-OCRv5 5.4% · ours 9.9% · ensemble 7.6% | measured — see "honest trade-off" below |
-| End-to-end random pages through the live API (12 pages × 2 seeds, aged-parchment renderer) | PP-OCRv5 3.9–4.3% · ensemble/auto 6.3–6.7% page CER; every line found (100%) | measured (`scripts/e2e_random.py`) |
+| End-to-end random pages through the live API (12–15 pages × 3 seeds, aged-parchment renderer) | PP-OCRv5 3.9–4.4% · ensemble 6.0–6.7% page CER; every line found (100%) | measured (`scripts/e2e_random.py`) |
 | Confidence is informative | correlation of page confidence vs page CER: −0.93 and −0.83 | measured |
 | Search recall on random OCR'd pages (native / IAST / plain-ASCII / one dropped letter) | 89–97% / 89–97% / 89–97% / 81% | measured, 2 seeds |
-| Randomised end-to-end test | **165 / 165 checks pass** (2 different seeds, ~51 s each) | measured |
+| Randomised end-to-end test | **165–168 checks pass, 0 fail** (7 different seeds, ~1 min each) | measured |
 | 10 simultaneous uploads | all accepted (201), page numbers unique, ingest 0.1 s each, all 10 OCR jobs finished in ~2.3 s | measured |
 | Confidence calibrator (picks the better engine per line) | held-out AUC 0.81, accuracy 72% (1,511 lines) | measured |
-| Automated unit/API tests | 30 passing |
+| Automated unit/API tests | 32 passing |
 | Upload limits | 25 MB/file, 50 files/request, 60 MP pixel-bomb guard, PDF supported |
 | Tokens | access 8 h, refresh 7 days, Argon2id passwords |
 | Job queue | 5-min lease, 3 attempts, 5 s → 10 s → 20 s backoff |
 
-**Honest trade-off to volunteer (it shows judgement):** our CRNN wins on *real scanned Sanskrit* (13.1% vs 27.7%) but PP-OCRv5 wins on clean *synthetic* renders (3.9–4.3% vs 6.3–6.7%). Neither is trained on handwriting. That is why "auto" runs an ensemble that picks per line using a small calibrator (it never did worse than the better engine on the real test set), and why every line still carries its confidence for human review.
+**Honest trade-off to volunteer (it shows judgement):** our CRNN wins on *real scanned printed Sanskrit* (13.1% vs 27.7%), but PP-OCRv5 wins on clean synthetic renders (3.9–4.4% vs 6.0–6.7%) and, when we put a real manuscript folio through both side by side (the Yajurveda folio in the seed data), PP-OCR read the lines visibly better — our CRNN was trained only on printed text. So **"auto" is routed by the manuscript's material**: printed books use the CRNN + PP-OCR ensemble (a small calibrator picks per line; it never did worse than the better engine on the real printed test set); manuscripts (paper, palm leaf, birch bark, cloth) use PP-OCR first with the others as fallbacks. You can always choose an engine explicitly. Handwriting-specific training data is the next step and is exactly what the verified-line export collects.
+
+**Be ready for:** "the demo folio text is wrong in places" — correct. Real handwritten Devanagari is hard for every recogniser we tried; that is why each line has a confidence colour, a correction box and a curator review. Show the *workflow*, not a claim of perfect reading.
 
 **Do not claim:** accuracy on handwritten manuscripts (we have no labelled handwritten test set — say so), "Vision Transformer" (our recognisers are a CNN+biLSTM+CTC model we trained and PP-OCRv5's SVTR; SVTR is transformer-style, ours is not), Tesseract results (not installed on the demo machine), Docker deployment (files exist, not tested here), 3D digital twins (not built).
 
@@ -191,7 +193,7 @@ Also: two curators reviewing one correction at the same instant both got 200 (fo
 - [ ] `JWT_SECRET` set; demo passwords noted (README) — rotate if exposed publicly
 - [ ] App started **before** the judges arrive (engines warm up in the background on boot — first request is otherwise slow)
 - [ ] Run `python -u -m scripts.e2e_random --pages 12 --out data/e2e_report.json` and read it (expect 165/165); compare with the numbers above
-- [ ] Run `python -m pytest -q` (30 tests)
+- [ ] Run `python -m pytest -q` (32 tests)
 - [ ] 3 fresh test photos on the desktop **and** on the phone (one clean, one blurry, one with a photo of a printed page)
 - [ ] Phone hotspot tested; laptop charger; HDMI adapter
 - [ ] Slides exported to PDF as backup; demo video downloaded locally

@@ -46,6 +46,15 @@ def run_job(job_id: str) -> None:
         jobs.fail(job_id, f"{type(exc).__name__}: {exc}", retryable=True)
 
 
+def resolve_auto_engine(engine: str, material: str) -> str:
+    """"auto" means: printed books -> our CRNN+PP-OCR ensemble (the CRNN was trained on printed lines);
+    manuscripts -> PP-OCR first (it read real manuscript folios clearly better than the CRNN), with the
+    other engines as fallbacks.  An explicit engine choice is never overridden."""
+    if engine == "auto" and material != "print":
+        return "ppocr"
+    return engine
+
+
 def _ocr(job_id: str) -> tuple[str, dict]:
     settings = get_settings()
     with SessionLocal() as db:
@@ -55,6 +64,7 @@ def _ocr(job_id: str) -> tuple[str, dict]:
             raise PermanentError("page no longer exists")
         ms = db.get(Manuscript, page.manuscript_id)
         script, engine, image_key = ms.script, job.engine_requested, page.image_key
+        engine = resolve_auto_engine(engine, ms.material)
         page.status = "processing"
         db.commit()
 

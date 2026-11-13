@@ -204,7 +204,7 @@ All seeded accounts use the password **`Lipi@2026`**. The login page also has on
 cd backend
 python -m pytest -q
 ```
-30 tests cover:
+32 tests cover:
 * metrics, Unicode normalisation, skew recovery at four angles, and line segmentation on synthetic pages
 * frame and blank-page handling, and a pipeline accuracy check against the raw baseline
 * a regression test for the stock-detector baseline
@@ -275,7 +275,7 @@ lipisetu/
 │   │   └── worker.py          job loop (embedded thread or standalone process)
 │   ├── scripts/seed.py        demo data with real OCR
 │   ├── seed/                  sites.json, manuscripts/ (images + sources.json)
-│   └── tests/                 30 pytest tests
+│   └── tests/                 32 pytest tests
 ├── frontend/src/
 │   ├── pages/                 Dashboard, Manuscripts, ManuscriptDetail, PageViewer, Search, Review, MapPage, Trails, Lab, Dataset, Jobs, Users, Audit, Profile…
 │   ├── components/            ui kit, Layout, ImageViewer, UploadPages, ManuscriptForm, Diff

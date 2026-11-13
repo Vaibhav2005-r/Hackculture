@@ -213,3 +213,25 @@ def test_partial_pages_are_reported_not_hidden(client, contributor):
 def test_ready_reports_engine_breakers(client):
     body = client.get(f"{API}/ready").json()
     assert "breakers" in body and "engines" in body
+
+
+def test_auto_engine_depends_on_material():
+    from app.services.handlers import resolve_auto_engine
+
+    assert resolve_auto_engine("auto", "paper") == "ppocr"
+    assert resolve_auto_engine("auto", "palm_leaf") == "ppocr"
+    assert resolve_auto_engine("auto", "print") == "auto"  # -> ensemble when two engines are available
+    assert resolve_auto_engine("crnn", "paper") == "crnn"
+
+
+def test_concurrent_requests_with_one_idempotency_key_make_one_job(client, contributor):
+    from concurrent.futures import ThreadPoolExecutor
+
+    ms = client.post(f"{API}/manuscripts", json={"title": "Idempotency race"}, headers=contributor).json()
+    up = client.post(f"{API}/manuscripts/{ms['id']}/pages", files=[("files", ("p.jpg", _png(91), "image/jpeg"))], data={"auto_ocr": "false"}, headers=contributor).json()
+    pid = up["pages"][0]["id"]
+    h = {**contributor, "Idempotency-Key": "race-test-key"}
+    with ThreadPoolExecutor(8) as pool:
+        rs = list(pool.map(lambda _: client.post(f"{API}/pages/{pid}/ocr", json={"engine": "auto"}, headers=h), range(8)))
+    assert all(r.status_code == 202 for r in rs), [r.status_code for r in rs]
+    assert len({r.json()["job"]["id"] for r in rs}) == 1
