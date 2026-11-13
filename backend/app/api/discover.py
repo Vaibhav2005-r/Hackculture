@@ -8,7 +8,7 @@ from app.api import get_or_404
 from app.db import get_db
 from app.models import Manuscript, Site, Trail, User
 from app.ratelimit import limit
-from app.schemas import SiteIn, TrailIn
+from app.schemas import SiteIn, SitePatch, TrailIn
 from app.security import current_user, optional_user, require_role
 from app.serializers import manuscript_out, site_out, trail_out
 from app.services import audit
@@ -122,9 +122,11 @@ def create_site(body: SiteIn, user: User = Depends(require_role("curator")), db:
 
 
 @router.patch("/sites/{site_id}")
-def update_site(site_id: str, body: SiteIn, user: User = Depends(require_role("curator")), db: Session = Depends(get_db)):
+def update_site(site_id: str, body: SitePatch, user: User = Depends(require_role("curator")), db: Session = Depends(get_db)):
     site = get_or_404(db, Site, site_id, "Site")
-    for k, v in body.model_dump().items():
+    for k, v in body.model_dump(exclude_unset=True).items():
+        if v is None and k in ("name", "kind", "lat", "lng", "visit_minutes"):
+            continue  # required columns cannot be cleared
         setattr(site, k, v)
     audit.record(db, user.id, "site.updated", "site", site.id)
     db.commit()

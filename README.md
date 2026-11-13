@@ -204,7 +204,7 @@ All seeded accounts use the password **`Lipi@2026`**. The login page also has on
 cd backend
 python -m pytest -q
 ```
-24 tests cover:
+30 tests cover:
 * metrics, Unicode normalisation, skew recovery at four angles, and line segmentation on synthetic pages
 * frame and blank-page handling, and a pipeline accuracy check against the raw baseline
 * a regression test for the stock-detector baseline
@@ -212,6 +212,20 @@ python -m pytest -q
 * end-to-end API flows: auth errors, role enforcement, upload → OCR job → page → search → correction → curator approval → export, the idempotent re-run, malicious upload rejection, nearby search and trail planning with router fallback, and a benchmark job
 
 Every screen was also exercised manually in a browser: sign-in (good and bad password, stale session), manuscript creation with validation, upload and live OCR progress, the page viewer (zoom, line selection, script switching, editing), the review queue, search, the map, trail planning and detail, the OCR Lab, jobs, users, audit and theme switching.
+
+## Training and evaluating the OCR models
+
+```bash
+pip install -r backend/requirements-train.txt
+cd backend
+python -m scripts.build_ocr_dataset --snskrt-parquet X.parquet --labels labels.csv --synth-dir synth/ --out lines.pkl
+python -m app.ocr.train_crnn --data lines.pkl            # writes data/crnn_sanskrit.pt and data/crnn_metrics.json
+python -m scripts.fit_calibrator --snskrt-parquet X.parquet --labels labels.csv --synth-val val.parquet
+python -m scripts.eval_engines  --snskrt-parquet X.parquet --labels labels.csv --synth-val val.parquet
+python -u -m scripts.e2e_random --pages 12 --out data/e2e_report.json   # randomised full-flow test (165 checks)
+```
+
+Held-out result for our CRNN on real printed Sanskrit lines (pages never seen in training): **14.4% CER**; the stock PP-OCRv5 engine scores 27.7% on the same lines. The model is only offered by the engine chain when its validation CER is under `CRNN_MAX_VAL_CER` (default 0.30). See [docs/JURY_PLAYBOOK.md](docs/JURY_PLAYBOOK.md) for the full measured table and honest limits.
 
 ## API
 
@@ -261,7 +275,7 @@ lipisetu/
 │   │   └── worker.py          job loop (embedded thread or standalone process)
 │   ├── scripts/seed.py        demo data with real OCR
 │   ├── seed/                  sites.json, manuscripts/ (images + sources.json)
-│   └── tests/                 24 pytest tests
+│   └── tests/                 30 pytest tests
 ├── frontend/src/
 │   ├── pages/                 Dashboard, Manuscripts, ManuscriptDetail, PageViewer, Search, Review, MapPage, Trails, Lab, Dataset, Jobs, Users, Audit, Profile…
 │   ├── components/            ui kit, Layout, ImageViewer, UploadPages, ManuscriptForm, Diff

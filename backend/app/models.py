@@ -102,10 +102,12 @@ class Page(Base):
     height: Mapped[int] = mapped_column(Integer, default=0)
     norm_width: Mapped[int] = mapped_column(Integer, default=0)
     norm_height: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|queued|processing|done|failed
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|queued|processing|done|partial|failed
     engine: Mapped[str] = mapped_column(String(40), default="")
     mean_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     skew_angle: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quality_note: Mapped[str] = mapped_column(String(300), default="")  # why a page is PARTIAL
+    image_sha256: Mapped[str] = mapped_column(String(64), default="")  # decoded-pixel hash: blocks double uploads
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     manuscript: Mapped[Manuscript] = relationship(back_populates="pages")

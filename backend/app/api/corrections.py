@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.api import get_or_404
@@ -65,6 +65,15 @@ def review(correction_id: str, body: ReviewIn, user: User = Depends(require_role
         raise HTTPException(status.HTTP_409_CONFLICT, f"This correction was already {c.status}")
     if not db.get(Line, c.line_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "The line no longer exists")
+    # Atomic claim: only one concurrent reviewer can flip pending -> reviewing.  The UPDATE takes the
+    # database write lock, so a second reviewer waits, then sees a non-pending row and gets a 409.
+    claimed = db.execute(
+        update(Correction).where(Correction.id == c.id, Correction.status == "pending").values(status="reviewing")
+    ).rowcount
+    if claimed != 1:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "This correction was just reviewed by someone else")
+    db.refresh(c)
     if body.action == "approve":
         apply_correction(db, c, user, body.text)
         c.review_note = body.note

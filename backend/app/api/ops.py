@@ -12,10 +12,10 @@ from sqlalchemy.orm import Session
 
 from app import __version__
 from app.api import get_or_404
-from app.config import get_settings
+from app.config import BACKEND_DIR, get_settings
 from app.db import get_db
 from app.models import AuditLog, Correction, Job, Line, Manuscript, Page, Site, Trail, User
-from app.ocr.engines import SCRIPTS, list_engines
+from app.ocr.engines import SCRIPTS, all_engines, list_engines
 from app.ratelimit import limit
 from app.schemas import BenchmarkIn, RoleIn
 from app.security import current_user, require_role
@@ -39,7 +39,7 @@ def meta():
         "version": __version__,
         "languages": [{"code": k, **v} for k, v in LANGUAGES.items()],
         "scripts": [{"id": k, "label": v} for k, v in SCRIPTS.items()],
-        "engines": [e.describe() for e in list_engines()],
+        "engines": [e.describe() for e in all_engines()],
         "translation": provider_status(),
         "transliteration_targets": ["iast", "devanagari", "gujarati", "itrans"],
     }
@@ -74,7 +74,9 @@ def ready(db: Session = Depends(get_db)):
     else:
         checks["worker"] = "external"
     ok = all(v in ("ok", "external") for v in checks.values())
-    body = {"status": "ok" if ok else "degraded", "checks": checks, "engines": engines}
+    from app.ocr.chain import breaker
+
+    body = {"status": "ok" if ok else "degraded", "checks": checks, "engines": engines, "breakers": breaker.snapshot()}
     if not ok:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, body)
     return body
@@ -283,6 +285,183 @@ def overview(db: Session = Depends(get_db)):
             for a, name in activity
         ],
     }
+
+
+# ---------------------------------------------------------------- CRNN training
+
+
+@router.get("/admin/crnn/status")
+def crnn_status(user: User = Depends(require_role("admin"))):
+    """Return CRNN model checkpoint info."""
+    from app.ocr.engines.crnn import _DEFAULT_MODEL_PATH
+
+    if not _DEFAULT_MODEL_PATH.exists():
+        return {"trained": False, "path": str(_DEFAULT_MODEL_PATH)}
+    try:
+        import torch
+
+        ckpt = torch.load(_DEFAULT_MODEL_PATH, map_location="cpu", weights_only=True)
+        return {
+            "trained": True,
+            "path": str(_DEFAULT_MODEL_PATH),
+            "vocab_size": len(ckpt.get("vocab", [])),
+            "scripts": ckpt.get("scripts"),
+            "val_loss": ckpt.get("val_loss"),
+            "val_acc": ckpt.get("val_acc"),
+            "n_examples": ckpt.get("n_examples"),
+            "epochs": ckpt.get("epochs"),
+        }
+    except ImportError:
+        return {"trained": False, "error": "torch not installed"}
+    except Exception as exc:
+        return {"trained": False, "error": str(exc)}
+
+
+@router.post("/admin/crnn/train", status_code=202)
+def trigger_crnn_train(
+    epochs: int = Query(50, ge=5, le=300),
+    batch_size: int = Query(32, ge=4, le=256),
+    lr: float = Query(1e-3, ge=1e-6, le=1e-1),
+    user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Queue a background CRNN training job.
+
+    The actual training is launched as a subprocess so it doesn't block the
+    API process.  Check ``/admin/crnn/status`` for results.
+
+    **Requirements:** ``torch`` and ``datasets`` must be installed in the venv.
+    Training on CPU takes roughly 2 hours for 50 epochs.
+    """
+    import shlex
+    import subprocess
+    import sys
+
+    try:
+        import torch  # noqa: F401
+        import datasets  # noqa: F401
+    except ImportError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Missing dependency: {exc}. Install with:  pip install torch datasets",
+        )
+
+    cmd = [
+        sys.executable, "-m", "app.ocr.train_crnn",
+        "--epochs", str(epochs),
+        "--batch-size", str(batch_size),
+        "--lr", str(lr),
+    ]
+    # Launch detached so it survives request completion
+    subprocess.Popen(cmd, cwd=str(BACKEND_DIR), start_new_session=True)
+    audit.record(db, user.id, "crnn.train_started", "crnn", "", epochs=epochs, batch_size=batch_size, lr=lr)
+    db.commit()
+    return {"status": "training_started", "command": shlex.join(cmd), "epochs": epochs}
+
+
+# ---------------------------------------------------------------- calibrator training
+
+
+@router.get("/admin/calibrator/status")
+def calibrator_status(user: User = Depends(require_role("admin"))):
+    """Return the current state of the CNN confidence calibrator."""
+    _MODEL_PATH = BACKEND_DIR / "data" / "calibrator.pt"  # same file app.ocr.calibrator uses (that module needs torch)
+
+    if not _MODEL_PATH.exists():
+        return {"fitted": False, "path": str(_MODEL_PATH)}
+    try:
+        import torch
+
+        ckpt = torch.load(_MODEL_PATH, map_location="cpu", weights_only=True)
+        return {
+            "fitted": True,
+            "path": str(_MODEL_PATH),
+            "n_examples": ckpt.get("n_examples"),
+            "train_loss": ckpt.get("train_loss"),
+            "train_acc": ckpt.get("train_acc"),
+            "engine_names": ckpt.get("engine_names"),
+        }
+    except ImportError:
+        return {"fitted": False, "error": "torch not installed"}
+    except Exception as exc:
+        return {"fitted": False, "error": str(exc)}
+
+
+@router.post("/admin/calibrator/train", status_code=202)
+def train_calibrator(
+    epochs: int = Query(30, ge=5, le=200),
+    min_examples: int = Query(100, ge=1),
+    user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Trigger a CNN calibrator training run from the correction history.
+
+    This runs synchronously in the request (training is fast: <30s on CPU for
+    typical correction volumes).  For large datasets, run
+    ``python -m app.ocr.train_calibrator`` as a separate process instead.
+    """
+    try:
+        import torch  # noqa: F401
+    except ImportError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "PyTorch is not installed; calibrator training is unavailable")
+
+    import unicodedata
+
+    import cv2
+
+    from app.models import Correction, Line, Page
+    from app.ocr.calibrator import train as _train
+    from app.services.storage import load_image
+
+    def _nfc(s: str) -> str:
+        return unicodedata.normalize("NFC", s or "").strip()
+
+    rows = (
+        db.query(Correction, Line, Page)
+        .join(Line, Correction.line_id == Line.id)
+        .join(Page, Line.page_id == Page.id)
+        .filter(Correction.status == "approved")
+        .all()
+    )
+
+    examples: list[dict] = []
+    engine_names_seen: set[str] = set()
+    for correction, line, page in rows:
+        try:
+            if not page.normalized_key:
+                continue
+            page_img = load_image(page.normalized_key)
+        except Exception:
+            continue
+        h, w = page_img.shape[:2]
+        x0, y0 = max(0, line.x), max(0, line.y)
+        x1, y1 = min(w, line.x + line.w), min(h, line.y + line.h)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        line_img = page_img[y0:y1, x0:x1]
+        if line_img.size == 0:
+            continue
+        engine_names_seen.add(line.engine or "unknown")
+        examples.append({
+            "img": line_img,
+            "engine_name": line.engine or "unknown",
+            "is_correct": _nfc(line.ocr_text) == _nfc(correction.text),
+        })
+
+    engine_names = sorted(engine_names_seen)
+    result = _train(examples=examples, engine_names=engine_names, epochs=epochs, min_examples=min_examples)
+
+    # Invalidate the in-process ensemble calibrator cache
+    try:
+        from app.ocr.engines.registry import reset_ensemble_calibrator
+
+        reset_ensemble_calibrator()
+    except Exception:
+        pass
+
+    audit.record(db, user.id, "calibrator.trained", "calibrator", "", **{k: v for k, v in result.items() if isinstance(v, (str, int, float))})
+    db.commit()
+    return result
 
 
 # ---------------------------------------------------------------- administration

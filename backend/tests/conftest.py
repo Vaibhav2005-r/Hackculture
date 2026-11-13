@@ -12,6 +12,7 @@ os.environ["EMBEDDED_WORKER"] = "true"
 os.environ["WORKER_POLL_SECONDS"] = "0.2"
 os.environ["RATE_LIMIT_PER_MINUTE"] = "10000"
 os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["CRNN_MAX_VAL_CER"] = "0"  # keep API tests independent of whichever CRNN checkpoint is on disk
 os.environ["OSRM_URL"] = "http://127.0.0.1:9"  # unreachable -> exercises the straight-line fallback
 
 

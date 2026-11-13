@@ -95,12 +95,17 @@ def _ocr(job_id: str) -> tuple[str, dict]:
         h, w = result.pre.color.shape[:2]
         page.normalized_key, page.binary_key = normalized_key, binary_key
         page.norm_width, page.norm_height = w, h
-        page.status, page.engine = "done", result.engine
+        quality, reasons = result.quality
+        page.status, page.engine = ("done" if quality == "complete" else "partial"), result.engine
+        page.quality_note = "; ".join(reasons)[:300]
         page.mean_confidence = result.mean_confidence
         page.skew_angle = result.pre.skew_angle
         audit.record(db, job.created_by, "ocr.completed", "page", page.id, lines=len(new_lines), engine=result.engine)
         db.commit()
     return result.engine, {
+        "quality": quality.upper(),  # COMPLETE | PARTIAL | EMPTY - never a silent success
+        "quality_reasons": reasons,
+        "lines_segmented": result.segmented,
         "lines": len(result.lines),
         "mean_confidence": result.mean_confidence,
         "skew_angle": result.pre.skew_angle,

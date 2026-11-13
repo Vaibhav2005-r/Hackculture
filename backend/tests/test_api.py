@@ -147,6 +147,21 @@ def test_sites_nearby_and_trail(client, contributor, curator):
     assert client.get(f"{API}/trails/{trail['id']}").status_code == 200
 
 
+def test_direct_manuscript_upload(client, contributor):
+    r = client.post(
+        f"{API}/manuscripts/upload",
+        files=[("files", ("shiva_stotra_folio1.jpg", _png(42), "image/jpeg"))],
+        data={"language": "sa", "auto_ocr": "false"},
+        headers=contributor,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert "manuscript" in body
+    assert body["manuscript"]["title"] == "Shiva Stotra Folio1"
+    assert len(body["pages"]) == 1
+    assert body["pages"][0]["page_no"] == 1
+
+
 def test_benchmark_job(client, contributor):
     r = client.post(f"{API}/lab/benchmarks", json={"pages": 2, "difficulty": 0.8}, headers=contributor)
     assert r.status_code == 202
@@ -155,3 +170,46 @@ def test_benchmark_job(client, contributor):
     s = job["result"]["summary"]
     assert s["full"]["cer"] < s["raw"]["cer"]
     assert len(job["result"]["samples"]) == 2
+
+
+def test_model_status_endpoints_respond_with_or_without_models(client, admin):
+    for name in ("crnn", "calibrator"):
+        r = client.get(f"{API}/admin/{name}/status", headers=admin)
+        assert r.status_code == 200, r.text
+        assert isinstance(r.json().get("trained", r.json().get("fitted")), bool)
+    engines = {e["name"] for e in client.get(f"{API}/meta").json()["engines"]}
+    assert "ensemble" in engines
+
+
+def test_duplicate_upload_is_stored_once(client, contributor):
+    ms = client.post(f"{API}/manuscripts", json={"title": "Dedupe check"}, headers=contributor).json()
+    same = _png(77)
+    r = client.post(
+        f"{API}/manuscripts/{ms['id']}/pages",
+        files=[("files", ("a.jpg", same, "image/jpeg")), ("files", ("b.jpg", same, "image/jpeg"))],
+        data={"auto_ocr": "false"},
+        headers=contributor,
+    )
+    assert r.status_code == 201 and len(r.json()["pages"]) == 1 and r.json()["duplicates_skipped"] == 1
+    # a retried POST of the same file adds nothing and does not renumber pages
+    r = client.post(f"{API}/manuscripts/{ms['id']}/pages", files=[("files", ("a.jpg", same, "image/jpeg"))], data={"auto_ocr": "false"}, headers=contributor)
+    assert r.status_code == 201 and r.json()["pages"] == [] and r.json()["duplicates_skipped"] == 1
+
+
+def test_partial_pages_are_reported_not_hidden(client, contributor):
+    import cv2
+    import numpy as np
+
+    ms = client.post(f"{API}/manuscripts", json={"title": "Blank page check"}, headers=contributor).json()
+    blank = np.full((600, 800, 3), 235, np.uint8)
+    ok, buf = cv2.imencode(".jpg", blank)
+    up = client.post(f"{API}/manuscripts/{ms['id']}/pages", files=[("files", ("blank.jpg", buf.tobytes(), "image/jpeg"))], data={"auto_ocr": "true"}, headers=contributor).json()
+    job = _wait(client, up["jobs"][0]["id"])
+    assert job["status"] == "done" and job["result"]["quality"] == "EMPTY" and job["result"]["quality_reasons"]
+    page = client.get(f"{API}/pages/{up['pages'][0]['id']}").json()
+    assert page["status"] == "partial" and "no text" in page["quality_note"]
+
+
+def test_ready_reports_engine_breakers(client):
+    body = client.get(f"{API}/ready").json()
+    assert "breakers" in body and "engines" in body

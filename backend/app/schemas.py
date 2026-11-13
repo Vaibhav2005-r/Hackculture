@@ -92,6 +92,42 @@ class ManuscriptIn(BaseModel):
         return v
 
 
+class ManuscriptPatch(BaseModel):
+    """Partial update: only the fields that are sent change."""
+
+    title: str | None = Field(default=None, min_length=2, max_length=300)
+    language: str | None = None
+    script: str | None = None
+    century: int | None = Field(default=None, ge=1, le=21)
+    material: Literal["paper", "palm_leaf", "birch_bark", "cloth", "print", "other"] | None = None
+    repository: str | None = Field(default=None, max_length=200)
+    site_id: str | None = None
+    description: str | None = Field(default=None, max_length=5000)
+    license: str | None = Field(default=None, max_length=120)
+    source_url: str | None = Field(default=None, max_length=500)
+
+    @field_validator("language")
+    @classmethod
+    def _lang(cls, v: str | None) -> str | None:
+        if v is not None and v not in LANGUAGES:
+            raise ValueError(f"Unsupported language '{v}'")
+        return v
+
+    @field_validator("script")
+    @classmethod
+    def _script(cls, v: str | None) -> str | None:
+        if v is not None and v not in SCRIPTS:
+            raise ValueError(f"Unsupported script '{v}'")
+        return v
+
+    @field_validator("source_url")
+    @classmethod
+    def _url(cls, v: str | None) -> str | None:
+        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("Source URL must start with http:// or https://")
+        return v
+
+
 class OcrIn(BaseModel):
     engine: str = "auto"
 
@@ -121,6 +157,21 @@ class SiteIn(BaseModel):
     era: str = Field(default="", max_length=100)
     visit_minutes: int = Field(default=45, ge=5, le=600)
     source_url: str = Field(default="", max_length=500)
+
+
+class SitePatch(BaseModel):
+    """Partial update: only the fields that are sent change."""
+
+    name: str | None = Field(default=None, min_length=2, max_length=200)
+    kind: Literal["unesco", "monument", "temple", "repository", "museum", "stepwell", "fort", "other"] | None = None
+    description: str | None = Field(default=None, max_length=5000)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+    city: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    era: str | None = Field(default=None, max_length=100)
+    visit_minutes: int | None = Field(default=None, ge=5, le=600)
+    source_url: str | None = Field(default=None, max_length=500)
 
 
 class TrailIn(BaseModel):

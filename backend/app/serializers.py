@@ -82,6 +82,7 @@ def page_out(p: Page, line_count: int | None = None, job: Job | None = None) -> 
         "engine": p.engine,
         "mean_confidence": p.mean_confidence,
         "skew_angle": p.skew_angle,
+        "quality_note": p.quality_note or "",
         "line_count": line_count if line_count is not None else len(p.lines),
         "job": job_out(job),
         "created_at": iso(p.created_at),

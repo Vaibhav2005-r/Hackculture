@@ -8,11 +8,14 @@ import {
   FileText,
   FlaskConical,
   Gauge,
+  ImageUp,
   Map,
   Rows3,
   Upload,
 } from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
+import { DirectUploadModal } from "../components/DirectUploadModal";
 import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Progress, Skeleton, Stat, StatusBadge } from "../components/ui";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -64,6 +67,7 @@ const ACTIONS: Record<string, string> = {
 export default function Dashboard() {
   const { user, can } = useAuth();
   const meta = useMeta();
+  const [uploadOpen, setUploadOpen] = useState(false);
   const q = useQuery({ queryKey: ["overview"], queryFn: () => api.get<Overview>("/stats/overview"), refetchInterval: 10000 });
   const d = q.data;
   const hour = new Date().getHours();
@@ -82,11 +86,16 @@ export default function Dashboard() {
         </div>
         <div className="flex flex-wrap gap-2">
           {can("contributor") && (
-            <Link to="/manuscripts?new=1">
-              <Button variant="primary" icon={<Upload className="size-4" />}>
-                Add manuscript
+            <>
+              <Button variant="primary" icon={<ImageUp className="size-4" />} onClick={() => setUploadOpen(true)}>
+                Upload manuscript image
               </Button>
-            </Link>
+              <Link to="/manuscripts?new=1">
+                <Button icon={<Upload className="size-4" />}>
+                  Catalogue entry
+                </Button>
+              </Link>
+            </>
           )}
           <Link to="/map">
             <Button icon={<Map className="size-4" />}>Plan a trail</Button>
@@ -264,6 +273,7 @@ export default function Dashboard() {
           </Link>
         ))}
       </div>
+      <DirectUploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
     </div>
   );
 }

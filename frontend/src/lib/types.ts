@@ -35,7 +35,8 @@ export interface Page {
   id: string;
   manuscript_id: string;
   page_no: number;
-  status: "pending" | "queued" | "processing" | "done" | "failed";
+  status: "pending" | "queued" | "processing" | "done" | "partial" | "failed";
+  quality_note: string;
   image_url: string;
   normalized_url: string | null;
   binary_url: string | null;

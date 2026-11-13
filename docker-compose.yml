@@ -1,0 +1,14 @@
+# docker compose up --build   ->   http://localhost:8000
+services:
+  lipisetu:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to a long random string}
+      EMBEDDED_WORKER: "true"
+      # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - lipisetu-data:/app/backend/data   # SQLite database, uploaded images, trained model checkpoints
+    restart: unless-stopped
+volumes:
+  lipisetu-data:

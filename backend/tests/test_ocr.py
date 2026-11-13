@@ -68,3 +68,15 @@ def test_pipeline_beats_raw_baseline():
         total_raw += cer(" ".join(ln.text for ln in raw.lines), truth)
     assert total_full / 3 < 0.15
     assert total_full < total_raw
+
+
+def test_rover_keeps_pivot_length_and_handles_insertions():
+    from app.ocr.engines.ensemble import rover_vote
+
+    # The strongest candidate is the pivot; an extra character in another candidate must not
+    # shift or truncate the result, and two weaker votes outweigh one wrong pivot character.
+    text, conf = rover_vote([("abXd", 0.9), ("abcd", 0.8), ("abcdZZ", 0.8)], [0.4, 0.3, 0.3])
+    assert text == "abcd"
+    assert 0.0 < conf <= 1.0
+    assert rover_vote([("", 0.0), ("abc", 0.7)]) == ("abc", 0.7)
+    assert rover_vote([]) == ("", 0.0)

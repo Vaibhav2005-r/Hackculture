@@ -36,7 +36,15 @@ class Settings(BaseSettings):
 
     # Rate limits (requests per minute per client)
     rate_limit_per_minute: int = 240
+    rate_limit_multiplier: float = 1.0  # scales every per-endpoint bucket (auth, upload, OCR, search...)
     ocr_jobs_per_minute: int = 30
+    # The CRNN engine is only offered when its checkpoint reports a validation CER at or below this.
+    crnn_max_val_cer: float = 0.30
+    # "auto" reads with the ensemble (per-line choice between engines) whenever two or more local engines exist.
+    auto_use_ensemble: bool = True
+    # A page is reported PARTIAL (not COMPLETE) when most text boxes were rejected or the read is weak.
+    ocr_max_dropped_fraction: float = 0.5
+    ocr_min_mean_confidence: float = 0.5
 
     # Optional providers
     anthropic_api_key: str = ""

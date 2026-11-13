@@ -194,7 +194,7 @@ export default function ManuscriptDetail() {
                 <div className="space-y-2 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <StatusBadge status={p.status} />
-                    {p.status === "done" && p.mean_confidence !== null && <ConfidenceChip value={p.mean_confidence} />}
+                    {(p.status === "done" || p.status === "partial") && p.mean_confidence !== null && <ConfidenceChip value={p.mean_confidence} />}
                   </div>
                   {["queued", "processing"].includes(p.status) && p.job ? (
                     <div>
@@ -206,7 +206,7 @@ export default function ManuscriptDetail() {
                       <FileWarning className="size-3.5" /> {p.job?.error?.slice(0, 60) || "Could not read this page"}
                     </div>
                   ) : (
-                    <div className="text-[11.5px] text-muted">{p.status === "done" ? `${p.line_count} lines · ${p.engine}` : "Not read yet"}</div>
+                    <div className="text-[11.5px] text-muted">{p.status === "done" || p.status === "partial" ? `${p.line_count} lines · ${p.engine}` : "Not read yet"}</div>
                   )}
                 </div>
               </Card>

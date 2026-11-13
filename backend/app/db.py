@@ -52,3 +52,15 @@ def init_db() -> None:
     if settings.is_sqlite:
         with engine.begin() as conn:
             conn.execute(text(FTS_DDL))
+        _add_missing_columns()
+
+
+def _add_missing_columns() -> None:
+    """Tiny forward-only migration: databases created by an older version gain new nullable/default columns."""
+    wanted = {"pages": {"quality_note": "VARCHAR(300) NOT NULL DEFAULT ''", "image_sha256": "VARCHAR(64) NOT NULL DEFAULT ''"}}
+    with engine.begin() as conn:
+        for table, cols in wanted.items():
+            have = {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
+            for name, ddl in cols.items():
+                if name not in have:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))

@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { BookOpenText, Filter, MapPin, Plus, Search as SearchIcon } from "lucide-react";
+import { BookOpenText, Filter, ImageUp, MapPin, Plus, Search as SearchIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { DirectUploadModal } from "../components/DirectUploadModal";
 import { ManuscriptForm } from "../components/ManuscriptForm";
 import { Badge, Button, Card, ConfidenceChip, EmptyState, ErrorBox, Input, PageHeader, Select, Skeleton } from "../components/ui";
 import { api, qs } from "../lib/api";
@@ -19,6 +20,9 @@ export default function Manuscripts() {
   const [debounced, setDebounced] = useState(q);
   const language = params.get("language") ?? "";
   const [creating, setCreating] = useState(params.get("new") === "1");
+  const [directUploading, setDirectUploading] = useState(false);
+  const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
+  const [pageDragging, setPageDragging] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q), 250);
@@ -32,15 +36,57 @@ export default function Manuscripts() {
   });
 
   return (
-    <div className="mx-auto max-w-[1240px] px-4 py-7 sm:px-8">
+    <div
+      className="relative mx-auto max-w-[1240px] px-4 py-7 sm:px-8"
+      onDragOver={(e) => {
+        if (!can("contributor")) return;
+        e.preventDefault();
+        setPageDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.relatedTarget === null) setPageDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!can("contributor")) return;
+        e.preventDefault();
+        setPageDragging(false);
+        if (e.dataTransfer.files?.length) {
+          setDroppedFiles(Array.from(e.dataTransfer.files));
+          setDirectUploading(true);
+        }
+      }}
+    >
+      {/* Full-page drag overlay */}
+      {pageDragging && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
+          <div className="rounded-3xl border-2 border-dashed border-white/80 bg-surface/90 p-8 text-center shadow-2xl">
+            <ImageUp className="mx-auto size-14 text-accent animate-bounce" />
+            <h2 className="mt-3 text-xl font-bold text-ink">Drop manuscript images here</h2>
+            <p className="mt-1 text-sm text-muted">Directly create and read folios</p>
+          </div>
+        </div>
+      )}
+
       <PageHeader
         title="Manuscripts"
         subtitle="Every folio in the archive. Open one to read it line by line, compare transliterations and suggest fixes."
         actions={
           can("contributor") && (
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-              New manuscript
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="primary"
+                icon={<ImageUp className="size-4" />}
+                onClick={() => {
+                  setDroppedFiles([]);
+                  setDirectUploading(true);
+                }}
+              >
+                Upload manuscript image
+              </Button>
+              <Button icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+                New catalogue entry
+              </Button>
+            </div>
           )
         }
       />
@@ -137,18 +183,41 @@ export default function Manuscripts() {
           <EmptyState
             icon={<BookOpenText className="size-5" />}
             title={debounced || language ? "No manuscripts match these filters" : "The archive is empty"}
-            body={debounced || language ? "Try a different word or clear the language filter." : "Create a manuscript and upload photos or a PDF of its pages."}
+            body={debounced || language ? "Try a different word or clear the language filter." : "Directly upload manuscript images or create a catalogue entry."}
             action={
               can("contributor") && !debounced && !language ? (
-                <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-                  New manuscript
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="primary"
+                    icon={<ImageUp className="size-4" />}
+                    onClick={() => {
+                      setDroppedFiles([]);
+                      setDirectUploading(true);
+                    }}
+                  >
+                    Upload manuscript images
+                  </Button>
+                  <Button icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+                    New catalogue entry
+                  </Button>
+                </div>
               ) : undefined
             }
           />
         </Card>
       )}
 
+      {/* Direct Image Upload Modal */}
+      <DirectUploadModal
+        open={directUploading}
+        onClose={() => {
+          setDirectUploading(false);
+          setDroppedFiles([]);
+        }}
+        initialFiles={droppedFiles}
+      />
+
+      {/* Standard Catalogue Form Modal */}
       <ManuscriptForm
         open={creating}
         onClose={() => {
@@ -158,7 +227,7 @@ export default function Manuscripts() {
             setParams(params, { replace: true });
           }
         }}
-        onSaved={(m) => navigate(`/manuscripts/${m.id}?upload=1`)}
+        onSaved={(m) => navigate(`/manuscripts/${m.id}`)}
       />
     </div>
   );

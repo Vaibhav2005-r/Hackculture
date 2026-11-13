@@ -1,4 +1,15 @@
-"""End-to-end page OCR used by the worker and by the benchmark."""
+"""End-to-end page OCR used by the worker and by the benchmark.
+
+Changes from v1
+---------------
+- The segmenter now receives ``pre.binary_thick`` (a 1-pixel dilation of the
+  Sauvola binary) when available.  This reconnects broken strokes so the
+  horizontal projection profile finds lines more reliably on faded manuscripts.
+  The thickened image is only used for segmentation; the display binary and the
+  crops sent to the recogniser remain unchanged.
+- The ``engine`` parameter now also accepts ``"ensemble"`` and
+  ``"ensemble+cloud"``; both are handled transparently by ``chain.recognize()``.
+"""
 
 import time
 from collections.abc import Callable
@@ -28,6 +39,29 @@ class PageOCR:
     lines: list[OCRLine]
     engine: str
     timings_ms: dict[str, int] = field(default_factory=dict)
+    segmented: int = 0  # text boxes found before reading
+    requested_engine: str = "auto"
+
+    @property
+    def quality(self) -> tuple[str, list[str]]:
+        """("complete" | "partial" | "empty", reasons).  Never reports success for a page that was not really read."""
+        from app.config import get_settings
+
+        s = get_settings()
+        reasons: list[str] = []
+        if self.segmented == 0:
+            return "empty", ["no text lines were found on this page"]
+        if not self.lines:
+            return "empty", [f"{self.segmented} boxes found but none read as text in this script"]
+        dropped = self.segmented - len(self.lines)
+        if dropped / self.segmented > s.ocr_max_dropped_fraction:
+            reasons.append(f"{dropped} of {self.segmented} boxes were rejected as noise or another script")
+        conf = self.mean_confidence
+        if conf is not None and conf < s.ocr_min_mean_confidence:
+            reasons.append(f"low mean confidence ({conf:.0%})")
+        if self.requested_engine not in ("auto", self.engine) and self.engine:
+            reasons.append(f"requested engine '{self.requested_engine}' was unavailable; read with '{self.engine}'")
+        return ("partial" if reasons else "complete"), reasons
 
     @property
     def mean_confidence(self) -> float | None:
@@ -66,6 +100,15 @@ def _in_script(text: str, script: str) -> bool:
     return native >= 2 and native >= 0.5 * sum(1 for ch in text if not ch.isspace())
 
 
+def _seg_binary(pre: Preprocessed) -> np.ndarray:
+    """Return the best binary image for segmentation.
+
+    Prefer the thickened version (better for faded manuscripts) when available.
+    Falls back to the standard binary if _thicken_ink was not applied.
+    """
+    return pre.binary_thick if pre.binary_thick is not None else pre.binary
+
+
 def run_page_ocr(
     image: np.ndarray,
     script: str,
@@ -92,12 +135,13 @@ def run_page_ocr(
 
     progress(35, "Finding text lines")
     t1 = time.perf_counter()
-    boxes = segment_lines(pre.binary)
+    # Use the thickened binary for segmentation when available (reconnects broken strokes).
+    boxes = segment_lines(_seg_binary(pre))
     timings["segment"] = round((time.perf_counter() - t1) * 1000)
 
     if not boxes:
         progress(95, "No text lines found")
-        return PageOCR(pre, [], "", timings)
+        return PageOCR(pre, [], "", timings, 0, engine)
 
     progress(50, f"Reading {len(boxes)} lines")
     t2 = time.perf_counter()
@@ -114,4 +158,4 @@ def run_page_ocr(
     lines = [ln for ln in lines if ln.text and _in_script(ln.text, script)]
     timings["total"] = round((time.perf_counter() - t0) * 1000)
     progress(90, "Saving results")
-    return PageOCR(pre, lines, engine_used, timings)
+    return PageOCR(pre, lines, engine_used, timings, len(boxes), engine)

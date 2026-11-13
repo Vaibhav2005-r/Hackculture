@@ -31,6 +31,11 @@ class RateLimiter:
             q.append(now)
 
 
+    def reset(self) -> None:
+        with self._lock:
+            self._hits.clear()
+
+
 limiter = RateLimiter()
 
 
@@ -40,6 +45,10 @@ def client_key(request: Request) -> str:
 
 def limit(bucket: str, per_minute: int):
     def dependency(request: Request) -> None:
-        limiter.check(client_key(request), bucket, per_minute)
+        # RATE_LIMIT_MULTIPLIER lets an operator loosen every bucket at once (e.g. a booth where many
+        # visitors share one IP) without touching code.
+        from app.config import get_settings
+
+        limiter.check(client_key(request), bucket, max(1, int(per_minute * get_settings().rate_limit_multiplier)))
 
     return dependency

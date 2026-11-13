@@ -165,7 +165,12 @@ export default function PageViewer() {
           </IconButton>
         </div>
         <StatusBadge status={page.status} />
-        {page.status === "done" && (
+        {page.status === "partial" && page.quality_note && (
+          <span className="hidden max-w-[28rem] truncate text-[12px] text-warn md:inline" title={page.quality_note}>
+            {page.quality_note}
+          </span>
+        )}
+        {(page.status === "done" || page.status === "partial") && (
           <span className="hidden text-[12px] text-muted md:inline">
             {page.engine} · skew {page.skew_angle ?? 0}° · {page.line_count} lines · mean {pct(page.mean_confidence)}
           </span>

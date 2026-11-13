@@ -1,0 +1,19 @@
+# Training dependencies for the CRNN OCR model and CNN confidence calibrator.
+# These are NOT required to run the API or perform inference — only for training.
+#
+# CPU-only install (recommended for local training):
+#   pip install -r requirements-train.txt
+#
+# GPU install (much faster, recommended for the CRNN — ~15 min vs ~2 hours):
+#   pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
+#   pip install datasets==3.5.0
+
+# PyTorch (CPU wheel — swap for GPU wheel above if you have a CUDA GPU)
+torch==2.5.1
+torchvision==0.20.1
+
+# Hugging Face Datasets — for loading snskrt/Sanskrit_OCR_Parallel_Corpus
+datasets==3.5.0
+
+# Needed by datasets for Parquet file loading
+pyarrow==18.1.0

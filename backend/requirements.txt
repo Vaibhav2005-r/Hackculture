@@ -28,6 +28,11 @@ freetype-py==2.5.1
 # Optional cloud engine + translation (only used when ANTHROPIC_API_KEY is set)
 anthropic==2.3.0
 
+# Optional CRNN training + CNN calibrator (only needed to train models, not for inference)
+# Install with:  pip install torch==2.5.1 torchvision==0.20.1 datasets==3.5.0
+# CPU-only wheel:  pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+# torch and datasets are intentionally not pinned here to avoid forcing GPU/CPU choice;
+
 # Language
 indic_transliteration==2.3.82
 RapidFuzz==3.14.6
