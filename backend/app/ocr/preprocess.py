@@ -94,6 +94,23 @@ def denoise(gray: np.ndarray) -> np.ndarray:
     return cv2.medianBlur(bilateral, 3)
 
 
+def _auto_window(gray: np.ndarray) -> int:
+    """Sauvola window from the size of the writing, not of the picture.
+
+    A window much smaller than a glyph hollows out thick strokes and turns page borders and paper
+    texture into "ink" (a 470 px-wide screenshot of calligraphy got a 15 px window and lost a whole
+    line); one much larger ignores uneven lighting.  Glyph height is estimated from a quick Otsu pass.
+    """
+    from app.ocr.segment import estimate_glyph_height
+
+    _, quick = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    glyph = estimate_glyph_height(quick)
+    fallback = max(15, (min(gray.shape[:2]) // 40) | 1)
+    if glyph <= 0:
+        return fallback
+    return int(np.clip(round(1.6 * glyph), 31, 151)) | 1
+
+
 def sauvola_binarize(gray: np.ndarray, window: int | None = None, k: float = 0.2) -> np.ndarray:
     """Return 255 for ink, 0 for background.
 
@@ -105,7 +122,7 @@ def sauvola_binarize(gray: np.ndarray, window: int | None = None, k: float = 0.2
     missing real strokes.
     """
     if window is None:
-        window = max(15, (min(gray.shape[:2]) // 40) | 1)  # odd, scales with resolution
+        window = _auto_window(gray)
     window |= 1
 
     # --- Primary: Sauvola ---
@@ -130,6 +147,24 @@ def sauvola_binarize(gray: np.ndarray, window: int | None = None, k: float = 0.2
     return remove_frame(ink_s)
 
 
+def _row_contrast(ink: np.ndarray) -> float:
+    """How strongly the ink rows stand out from the gaps between them (borders and speckle flatten it)."""
+    prof = ink.sum(axis=1).astype(np.float64)
+    return float(prof.std() / (prof.mean() + 1e-9))
+
+
+def _best_binary(gray_raw: np.ndarray, gray_clahe: np.ndarray) -> np.ndarray:
+    """Binarise with and without CLAHE and keep the cleaner result.
+
+    CLAHE rescues faded ink but also amplifies paper texture and borders; on contrasty pages it makes
+    the line profile noisier (one folio went from 5 to 31 "lines").  The candidate whose row profile has
+    the stronger line/gap contrast wins; plain denoised grey wins ties.
+    """
+    plain = remove_vertical_rules(sauvola_binarize(denoise(gray_raw)))
+    boosted = remove_vertical_rules(sauvola_binarize(gray_clahe))
+    return boosted if _row_contrast(boosted) > _row_contrast(plain) * 1.05 else plain
+
+
 def _thicken_ink(ink: np.ndarray) -> np.ndarray:
     """1-pixel dilation to reconnect broken strokes (e.g. water damage, faded ink).
 
@@ -138,6 +173,31 @@ def _thicken_ink(ink: np.ndarray) -> np.ndarray:
     """
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))  # keeps adjacent glyphs apart
     return cv2.dilate(ink, kernel, iterations=1)
+
+
+def remove_vertical_rules(ink: np.ndarray) -> np.ndarray:
+    """Erase page borders, column rules and decorative side bars.
+
+    Text strokes are short vertically (a few percent of the page height); borders run for a large
+    fraction of it, even when drawn as dotted or broken lines.  An opening with a tall 1-pixel kernel
+    keeps only such long vertical structures, which are then subtracted (slightly widened).
+    """
+    h, w = ink.shape
+    tall = max(25, int(0.10 * h))
+    bars = cv2.morphologyEx(ink, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, tall)))
+    if not bars.any():
+        return ink
+    bars = cv2.dilate(bars, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 1)))
+    # only structures that really are rules: tall and narrow overall (not a column of text)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(bars, connectivity=8)
+    keep = np.zeros(n, bool)
+    for i in range(1, n):
+        if stats[i, cv2.CC_STAT_HEIGHT] >= tall and stats[i, cv2.CC_STAT_WIDTH] <= 0.12 * w:
+            keep[i] = True
+    mask = keep[labels]
+    out = ink.copy()
+    out[mask] = 0
+    return out
 
 
 def remove_frame(ink: np.ndarray) -> np.ndarray:
@@ -210,8 +270,9 @@ def preprocess(img: np.ndarray, max_side: int = 2400, deskew: bool = True) -> Pr
     img, scale = limit_size(img, max_side)
     img, crop_box = crop_to_page(img)
 
-    gray = denoise(enhance_contrast(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)))
-    ink = sauvola_binarize(gray)
+    gray0 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = denoise(enhance_contrast(gray0))
+    ink = _best_binary(gray0, gray)
     # Thicken ink to reconnect broken strokes before segmentation.
     # We keep the original un-thickened binary for display (the viewer shows
     # the inverted binary) so we only use the thickened version for deskew + segment.

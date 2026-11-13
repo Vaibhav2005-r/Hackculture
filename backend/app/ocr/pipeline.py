@@ -150,9 +150,15 @@ def run_page_ocr(
     engine_used, results = chain.recognize(crop_lines(pre.color, boxes), script, engine)
     timings["recognize"] = round((time.perf_counter() - t2) * 1000)
 
+    # Replace each recogniser's own (over-optimistic) confidence with one that also uses how much
+    # independent engines agree on the line; see app/ocr/confidence.py.
+    from app.ocr import confidence as _confidence
+
+    crops = crop_lines(pre.color, boxes)
+    confs = _confidence.rescore(crops, [r.text for r in results], [float(r.confidence) for r in results], script)
     lines = [
-        OCRLine(box, normalize_text(r.text, script), round(float(r.confidence), 4))
-        for box, r in zip(boxes, results, strict=True)
+        OCRLine(box, normalize_text(r.text, script), round(float(c), 4))
+        for box, r, c in zip(boxes, results, confs, strict=True)
     ]
     # Boxes that read as nothing, or as letters of a different script, are ornaments, borders or stains.
     lines = [ln for ln in lines if ln.text and _in_script(ln.text, script)]

@@ -84,6 +84,22 @@ def _horizontal_chunks(row_ink: np.ndarray, line_h: float) -> list[tuple[int, in
     return [(a, b) for a, b in _bands(closed) if b - a > line_h * 0.8]
 
 
+def _line_pitch(binary: np.ndarray) -> float | None:
+    """Distance between successive text rows, from the autocorrelation of the row ink profile."""
+    profile = binary.sum(axis=1).astype(np.float64)
+    if profile.size < 60 or profile.std() == 0:
+        return None
+    p = profile - profile.mean()
+    ac = np.correlate(p, p, mode="full")[len(p) - 1 :]
+    ac /= ac[0]
+    lo, hi = 25, max(26, len(p) // 3)  # below ~25 px the period is speckle or stroke texture, not text rows
+    seg = ac[lo:hi]
+    if seg.size == 0:
+        return None
+    k = int(np.argmax(seg))
+    return float(lo + k) if seg[k] > 0.25 else None
+
+
 def segment_lines(ink: np.ndarray) -> list[Box]:
     """Return line boxes (reading order) for a binary page where ink == 255."""
     h, w = ink.shape
@@ -92,6 +108,12 @@ def segment_lines(ink: np.ndarray) -> list[Box]:
     if glyph_h <= 0:
         return []
     line_h = max(6.0, glyph_h * 1.35)
+    pitch = _line_pitch(binary)
+    # Large calligraphic writing has far taller strokes than the median component (hooks, matras and
+    # speckle drag the median down).  When the rows repeat with a clear period that is much bigger than
+    # the component-based estimate, trust the period.
+    if pitch and pitch * 0.8 > 1.5 * line_h:
+        line_h = pitch * 0.8
 
     profile = binary.sum(axis=1).astype(np.float64)
     smooth = _smooth(profile, sigma=max(1.0, line_h / 6))

@@ -45,6 +45,21 @@ Three differentiators (say them in this order, every time):
 
 **Do not claim:** accuracy on handwritten manuscripts (we have no labelled handwritten test set — say so), "Vision Transformer" (our recognisers are a CNN+biLSTM+CTC model we trained and PP-OCRv5's SVTR; SVTR is transformer-style, ours is not), Tesseract results (not installed on the demo machine), Docker deployment (files exist, not tested here), 3D digital twins (not built).
 
+### Offline vs online reading — measured on the Navkar Mantra folio (9 lines, text known)
+
+| Reader | Error on that folio | Time | Runs offline? |
+|---|---|---|---|
+| Our CRNN (print-trained) | 106% line CER (unusable on this hand) | 0.4 s | yes |
+| PP-OCRv5 | 39% line CER | ~2.7 s per page | yes |
+| Ensemble (CRNN + PP-OCR) | 106% — worse than PP-OCR here, which is why manuscripts use PP-OCR first | ~3 s | yes |
+| NVIDIA-hosted `google/gemma-4-31b-it` (online, optional) | **5–6% page CER**, reproduced 3×; also read the bold scribal folio plausibly | 95–135 s per page on the free hosted tier | **no** |
+| NVIDIA `nemotron-3-nano-omni-30b` | 56% | 5 s | no |
+| NVIDIA `nemotron-3.5-super-vl-120b`, `llama-3.2-90b-vision` | timed out (>170 s) on a full page | — | no |
+
+**How it ships:** local engines always read first (≈3 s) so the app is fully usable offline. If an admin switches **online AI reading** on (Dashboard card; default OFF; `OFFLINE_MODE=true` on the server disables it for good), each page is then re-read by the hosted model in the background, its lines are placed onto our own line boxes by a monotone alignment (ornaments and missed lines are skipped), and **only unverified lines are replaced** — human-verified lines are never overwritten. If the network or the service fails, the job fails with a clear message and the offline reading stays.
+
+**Say honestly:** online reading sends page images to NVIDIA; it is opt-in and per-installation. Latency on the free hosted tier is 1–2 minutes per page, so it is a background upgrade, not the live path. Offline accuracy on handwritten manuscripts remains limited (see above) and is being improved by training on handwritten data.
+
 ---
 
 ## 2. Five-minute stage pitch (300 s) + 3-minute Q&A
@@ -169,7 +184,7 @@ Also: two curators reviewing one correction at the same instant both got 200 (fo
 |---|---|
 | Judge uploads something strange and result is Partial | Good — point at the reason text. "This is by design: it tells you it didn't read it fully." |
 | OCR takes long on the booth laptop | Show the live progress stage; open the log; mention single worker. Have a pre-processed page ready. |
-| Wi-Fi dies | The core demo is local. Map tiles and road routing need internet — the trail still plans (straight-line, labelled). Phone hotspot as backup. |
+| Wi-Fi dies | The core demo is local; the optional online upgrade simply does not run (offline reading unchanged). Map tiles and road routing need internet — the trail still plans (straight-line, labelled). Phone hotspot as backup. |
 | Login stuck | Demo accounts button on the login page (password in README). Keep a second browser logged in already. |
 | "Prove it's not hard-coded" | Upload their image; show the request in the log with its request ID; open `ocr/pipeline.py`. |
 | "What breaks first?" | The single OCR worker and SQLite's single writer. Fix: more workers, PostgreSQL. |

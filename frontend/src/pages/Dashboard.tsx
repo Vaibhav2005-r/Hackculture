@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   BookOpenText,
@@ -12,7 +12,10 @@ import {
   Map,
   Rows3,
   Upload,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { DirectUploadModal } from "../components/DirectUploadModal";
@@ -63,6 +66,51 @@ const ACTIONS: Record<string, string> = {
   "job.retried": "retried a job",
   "page.deleted": "deleted a page",
 };
+
+function OnlineCard() {
+  const meta = useMeta();
+  const { can } = useAuth();
+  const qc = useQueryClient();
+  const online = meta.data?.online;
+  const toggle = useMutation({
+    mutationFn: (enabled: boolean) => api.patch("/admin/online", { enabled }),
+    onSuccess: (_r, enabled) => {
+      toast.success(enabled ? "Online AI reading is on" : "Offline mode: nothing leaves this computer");
+      qc.invalidateQueries({ queryKey: ["meta"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  if (!online) return null;
+  const blocked = online.offline_mode || !online.configured;
+  return (
+    <Card>
+      <CardHeader
+        title="Offline / online reading"
+        subtitle={online.active ? "Online AI is improving every new page" : "Fully offline: page images never leave this computer"}
+        icon={online.active ? <Wifi className="size-4" /> : <WifiOff className="size-4" />}
+      />
+      <div className="space-y-3 px-5 py-4 text-[13px]">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium text-ink">{online.active ? "Online AI reading: ON" : "Offline mode: ON"}</span>
+          {online.active ? <Badge tone="warn" dot>Images sent to {online.provider}</Badge> : <Badge tone="good" dot>Private</Badge>}
+        </div>
+        <p className="text-[12px] text-muted">
+          The offline engines always read first, so everything works without internet. With online reading on, a hosted vision-language model ({online.model}) then re-reads each page and replaces unverified lines; lines a person has verified are never changed.
+        </p>
+        {blocked && (
+          <p className="text-[12px] text-warn">{online.offline_mode ? "OFFLINE_MODE is set on the server, so online reading is disabled." : "No NVIDIA_API_KEY is configured on the server."}</p>
+        )}
+        {can("admin") ? (
+          <Button size="sm" variant={online.active ? "secondary" : "primary"} loading={toggle.isPending} disabled={blocked} onClick={() => toggle.mutate(!online.enabled)}>
+            {online.active ? "Switch to offline mode" : "Switch on online AI reading"}
+          </Button>
+        ) : (
+          <p className="text-[12px] text-muted">Only an administrator can change this.</p>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 export default function Dashboard() {
   const { user, can } = useAuth();
@@ -185,10 +233,12 @@ export default function Dashboard() {
           </div>
         </Card>
 
+        <OnlineCard />
+
         <Card>
           <CardHeader title="Recognition engines" subtitle="Used automatically, with fallback" icon={<Cpu className="size-4" />} />
           <div className="divide-y divide-line">
-            {meta.data?.engines.map((e) => (
+            {meta.data?.engines.filter((e) => e.available).map((e) => (
               <div key={e.name} className="px-5 py-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[13px] font-medium text-ink">{e.label}</span>

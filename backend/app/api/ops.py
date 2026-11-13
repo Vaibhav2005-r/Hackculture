@@ -17,10 +17,10 @@ from app.db import get_db
 from app.models import AuditLog, Correction, Job, Line, Manuscript, Page, Site, Trail, User
 from app.ocr.engines import SCRIPTS, all_engines, list_engines
 from app.ratelimit import limit
-from app.schemas import BenchmarkIn, RoleIn
+from app.schemas import BenchmarkIn, OnlineIn, RoleIn
 from app.security import current_user, require_role
 from app.serializers import iso, job_out, user_out
-from app.services import audit, jobs
+from app.services import audit, runtime, jobs
 from app.services.handlers import VARIANTS
 from app.services.languages import LANGUAGES
 from app.services.storage import storage
@@ -41,6 +41,7 @@ def meta():
         "scripts": [{"id": k, "label": v} for k, v in SCRIPTS.items()],
         "engines": [e.describe() for e in all_engines()],
         "translation": provider_status(),
+        "online": runtime.status(),
         "transliteration_targets": ["iast", "devanagari", "gujarati", "itrans"],
     }
 
@@ -285,6 +286,20 @@ def overview(db: Session = Depends(get_db)):
             for a, name in activity
         ],
     }
+
+
+# ---------------------------------------------------------------- online / offline switch
+
+
+@router.patch("/admin/online")
+def set_online_mode(body: OnlineIn, user: User = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Switch optional online reading on or off.  Off (the default) keeps every page image on this machine."""
+    if body.enabled and not runtime.online_available():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Online reading needs NVIDIA_API_KEY and OFFLINE_MODE unset")
+    runtime.set_online(body.enabled)
+    audit.record(db, user.id, "online.enabled" if body.enabled else "online.disabled", "settings", "online")
+    db.commit()
+    return runtime.status()
 
 
 # ---------------------------------------------------------------- CRNN training

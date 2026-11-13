@@ -79,6 +79,23 @@ def run_ocr(
     return {"created": created, "job": job_out(job)}
 
 
+@router.post("/{page_id}/enhance", status_code=202, dependencies=[Depends(limit("ocr", 30))])
+def enhance_page(page_id: str, user: User = Depends(require_role("contributor")), db: Session = Depends(get_db)):
+    """Read this page with the optional online reader (needs online mode switched on)."""
+    from app.services import runtime
+
+    page = get_or_404(db, Page, page_id, "Page")
+    if not runtime.online_active():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Online reading is off. An admin can switch it on from the dashboard.")
+    if page.status not in ("done", "partial"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Read the page with the offline engines first")
+    job, created = jobs.enqueue(db, kind="enhance", page_id=page.id, engine="nvidia", user_id=user.id, touch_page=False)
+    if created:
+        audit.record(db, user.id, "enhance.requested", "page", page.id)
+    db.commit()
+    return {"created": created, "job": job_out(job)}
+
+
 @router.delete("/{page_id}", status_code=204)
 def delete_page(page_id: str, user: User = Depends(require_role("contributor")), db: Session = Depends(get_db)):
     page = get_or_404(db, Page, page_id, "Page")

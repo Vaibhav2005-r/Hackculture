@@ -196,7 +196,8 @@ All seeded accounts use the password **`Lipi@2026`**. The login page also has on
 
 ### Optional engines
 * **Tesseract 5** (adds Gujarati and a dedicated Sanskrit model): install it with the `guj`, `san`, `hin` language data. It is detected automatically (or set `TESSERACT_CMD`).
-* **Claude vision + translation:** set `ANTHROPIC_API_KEY` in `backend/.env`. The Translate button and the cloud OCR engine then switch on. Without a key, both explain what is needed instead of failing.
+* **Online reading (optional, off by default):** set `NVIDIA_API_KEY` in `backend/.env`, then an admin switches *online AI reading* on from the Dashboard. After the normal offline read, a hosted vision-language model (`google/gemma-4-31b-it` by default) re-reads the page and replaces unverified lines (verified lines are never touched). It read a real calligraphic Prakrit folio at 5–6% character error where the offline engines were at 39% and worse, at the cost of 1–2 minutes per page and sending the page image to NVIDIA. `OFFLINE_MODE=true` disables it for good.
+* **Claude vision + translation:** set `ANTHROPIC_API_KEY`; the Translate button and the cloud OCR engine switch on only when a key exists (hidden otherwise).
 
 ## Tests
 

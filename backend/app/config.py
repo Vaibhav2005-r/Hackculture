@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     crnn_max_val_cer: float = 0.30
     # "auto" reads with the ensemble (per-line choice between engines) whenever two or more local engines exist.
     auto_use_ensemble: bool = True
+    # Optional online reading (NVIDIA-hosted vision-language model).  Images leave this computer only when
+    # an API key is set AND online mode is switched on AND OFFLINE_MODE is not set.
+    nvidia_api_key: str = ""
+    nvidia_model: str = "google/gemma-4-31b-it"
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nvidia_timeout_s: float = 180.0
+    offline_mode: bool = False  # hard switch: never contact any online service
     # A page is reported PARTIAL (not COMPLETE) when most text boxes were rejected or the read is weak.
     ocr_max_dropped_fraction: float = 0.5
     ocr_min_mean_confidence: float = 0.5

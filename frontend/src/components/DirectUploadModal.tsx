@@ -13,9 +13,14 @@ import { Button, Field, Input, Modal, Progress, Select, Textarea } from "./ui";
 const ACCEPT = "image/jpeg,image/png,image/tiff,image/webp,image/bmp,application/pdf";
 const MAX_MB = 25;
 
+// File names such as "Screenshot 2026-11-13 at 4.24.55 PM.png" or "IMG_0042.jpg" make useless titles.
+const GENERIC_NAME = /^(screenshot|screen shot|img|image|photo|pxl|dsc|scan|capture|whatsapp|untitled|download)\b/i;
+
+/** A readable title from a file name, or "" when the name says nothing about the manuscript. */
 export function fileToTitle(name: string): string {
   const base = name.replace(/\.[^/.]+$/, "");
   const cleaned = base.replace(/[_-]+/g, " ").trim();
+  if (!cleaned || GENERIC_NAME.test(cleaned) || !/[\p{L}]{3,}/u.test(cleaned.replace(/\d+/g, ""))) return "";
   return cleaned
     .split(/\s+/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -123,13 +128,14 @@ export function DirectUploadModal({
     }
     if (!ok.length) return;
 
-    setFiles((prev) => {
-      const merged = [...prev, ...ok].slice(0, 50);
-      if (!titleTouched && merged.length > 0) {
-        setTitle(fileToTitle(merged[0].name));
-      }
-      return merged;
-    });
+    const merged = [...files, ...ok].slice(0, 50);
+    setFiles(merged);
+    if (!titleTouched && merged.length > 0) {
+      const suggestion = fileToTitle(merged[0].name);
+      setTitle(suggestion);
+      // No usable name: put the cursor in the title field instead of leaving a junk title.
+      if (!suggestion) setTimeout(() => document.getElementById("manuscript-title")?.focus(), 80);
+    }
 
     const urls = ok.map((f) => (f.type.startsWith("image/") ? URL.createObjectURL(f) : ""));
     setPreviews((prev) => [...prev, ...urls].slice(0, 50));
@@ -137,15 +143,9 @@ export function DirectUploadModal({
 
   function removeFile(index: number) {
     if (previews[index]) URL.revokeObjectURL(previews[index]);
-    setFiles((prev) => {
-      const next = prev.filter((_, i) => i !== index);
-      if (!titleTouched && next.length > 0) {
-        setTitle(fileToTitle(next[0].name));
-      } else if (next.length === 0 && !titleTouched) {
-        setTitle("");
-      }
-      return next;
-    });
+    const next = files.filter((_, i) => i !== index);
+    setFiles(next);
+    if (!titleTouched) setTitle(next.length > 0 ? fileToTitle(next[0].name) : "");
     setPreviews((prev) => prev.filter((_, i) => i !== index));
   }
 
@@ -157,7 +157,10 @@ export function DirectUploadModal({
     }
 
     const errs: typeof errors = {};
-    if (title.trim().length < 2) errs.title = "Give the manuscript a title";
+    if (title.trim().length < 2) {
+      errs.title = "Give the manuscript a title";
+      document.getElementById("manuscript-title")?.focus();
+    }
     const c = century ? Number(century) : null;
     if (century && (!Number.isInteger(c) || c! < 1 || c! > 21)) errs.century = "Century must be between 1 and 21";
     if (sourceUrl && !/^https?:\/\//.test(sourceUrl)) errs.source_url = "Start with http:// or https://";
@@ -326,8 +329,9 @@ export function DirectUploadModal({
         {/* Title and Language */}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <Field label="Manuscript Title" error={errors.title} hint="Auto-derived from image name, or customize here">
+            <Field label="Manuscript Title" error={errors.title} hint="Type the manuscript's name (a clear file name is used as a suggestion)">
               <Input
+                id="manuscript-title"
                 value={title}
                 onChange={(e) => {
                   setTitle(e.target.value);

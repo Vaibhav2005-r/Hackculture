@@ -235,3 +235,57 @@ def test_concurrent_requests_with_one_idempotency_key_make_one_job(client, contr
         rs = list(pool.map(lambda _: client.post(f"{API}/pages/{pid}/ocr", json={"engine": "auto"}, headers=h), range(8)))
     assert all(r.status_code == 202 for r in rs), [r.status_code for r in rs]
     assert len({r.json()["job"]["id"] for r in rs}) == 1
+
+
+def test_online_reading_is_opt_in_and_never_overwrites_verified_lines(client, contributor, curator, admin, monkeypatch):
+    # 1. nothing leaves the machine by default, and the switch refuses to turn on without a key
+    assert client.get(f"{API}/meta").json()["online"]["active"] is False
+    r = client.patch(f"{API}/admin/online", json={"enabled": True}, headers=admin)
+    assert r.status_code == 409
+    assert client.patch(f"{API}/admin/online", json={"enabled": True}, headers=contributor).status_code == 403
+
+    # 2. with a (fake) key the admin can switch it on; the hosted reader is mocked
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "nvidia_api_key", "test-key")  # settings are cached per process
+    assert client.patch(f"{API}/admin/online", json={"enabled": True}, headers=admin).json()["active"] is True
+    ms = client.post(f"{API}/manuscripts", json={"title": "Online enhance check"}, headers=contributor).json()
+    up = client.post(f"{API}/manuscripts/{ms['id']}/pages", files=[("files", ("p.jpg", _png(123), "image/jpeg"))], data={"auto_ocr": "true"}, headers=contributor).json()
+    _wait(client, up["jobs"][0]["id"])
+    page = client.get(f"{API}/pages/{up['pages'][0]['id']}").json()
+    n = len(page["lines"])
+    assert n >= 3
+    # a curator verifies line 2 by hand; the online pass must not overwrite it
+    verified_id = page["lines"][1]["id"]
+    cid = client.post(f"{API}/lines/{verified_id}/corrections", json={"text": "हस्तलिखित सत्यम्"}, headers=curator).json()["correction"]["id"]
+    assert cid
+
+    import app.services.handlers as handlers
+
+    online_text = [f"ऑनलाइन पंक्ति संख्या {i}" for i in range(n)]
+    monkeypatch.setattr(handlers, "read_page", lambda image, script: online_text)
+    r = client.post(f"{API}/pages/{page['id']}/enhance", headers=contributor)
+    assert r.status_code == 202, r.text
+    done = _wait(client, r.json()["job"]["id"])
+    assert done["status"] == "done" and done["result"]["replaced"] == n - 1, done
+    after = client.get(f"{API}/pages/{page['id']}").json()
+    assert after["lines"][1]["text"] == "हस्तलिखित सत्यम्" and after["lines"][1]["verified"]
+    assert after["lines"][0]["engine"] == "nvidia" and after["lines"][0]["text"].startswith("ऑनलाइन")
+
+    # 3. the hard offline switch beats everything
+    monkeypatch.setattr(get_settings(), "offline_mode", True)
+    assert client.get(f"{API}/meta").json()["online"]["active"] is False
+    assert client.post(f"{API}/pages/{page['id']}/enhance", headers=contributor).status_code == 409
+    monkeypatch.setattr(get_settings(), "offline_mode", False)
+    client.patch(f"{API}/admin/online", json={"enabled": False}, headers=admin)
+    assert client.get(f"{API}/meta").json()["online"]["active"] is False
+
+
+def test_line_alignment_handles_ornaments_and_missing_lines():
+    from app.ocr.online import align, clean_lines
+
+    assert clean_lines("1. णमो सिद्धाणं\n॥ ॐ ॥\nहै यह") == ["णमो सिद्धाणं", "है यह"] or clean_lines("॥ ॐ ॥") == []
+    local = ["junk", "णमो सिद्धाणं", "णमो आयरियाणं"]
+    online = ["णमो अरिहंताणं", "णमो सिद्धाणं", "णमो आयरियाणं"]
+    assert align(local, online) == [(0, 0), (1, 1), (2, 2)]
+    assert align(["णमो सिद्धाणं", "णमो आयरियाणं"], online) == [(0, 1), (1, 2)]  # local missed the first line

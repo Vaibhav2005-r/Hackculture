@@ -30,6 +30,7 @@ def enqueue(
     options: dict | None = None,
     idempotency_key: str | None = None,
     user_id: str | None = None,
+    touch_page: bool = True,
 ) -> tuple[Job, bool]:
     """Create a job, or return the existing one for the same idempotency key. Returns (job, created)."""
     if idempotency_key:
@@ -53,7 +54,7 @@ def enqueue(
         # SAVEPOINT: if a concurrent request wins the unique idempotency key, only this insert is undone.
         with db.begin_nested():
             db.add(job)
-            if page_id:
+            if page_id and touch_page:
                 db.execute(update(Page).where(Page.id == page_id).values(status="queued"))
             db.flush()
     except IntegrityError:

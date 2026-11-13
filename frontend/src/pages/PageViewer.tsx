@@ -12,6 +12,7 @@ import {
   Languages,
   Pencil,
   RefreshCw,
+  Wand2,
   ShieldCheck,
   Trash2,
   X,
@@ -113,6 +114,28 @@ export default function PageViewer() {
     return () => document.removeEventListener("keydown", onKey);
   }, [lines, selected, page, can]);
 
+  const enhance = useMutation({
+    mutationFn: () => api.post<{ job: { id: string } }>(`/pages/${id}/enhance`),
+    onSuccess: (r) => {
+      toast.info("Sent to the online reader. This can take a minute or two; the offline reading stays until it finishes.");
+      const started = Date.now();
+      const timer = setInterval(async () => {
+        try {
+          const job = await api.get<{ status: string; error?: string; result?: { replaced?: number } }>(`/jobs/${r.job.id}`);
+          if (job.status === "done" || job.status === "failed" || Date.now() - started > 6 * 60_000) {
+            clearInterval(timer);
+            qc.invalidateQueries({ queryKey: ["page", id] });
+            if (job.status === "done") toast.success(`Online reading finished: ${job.result?.replaced ?? 0} lines updated`);
+            else toast.error(job.error || "Online reading did not finish; the offline reading is unchanged");
+          }
+        } catch {
+          clearInterval(timer);
+        }
+      }, 4000);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const del = useMutation({
     mutationFn: () => api.del(`/pages/${id}`),
     onSuccess: () => {
@@ -192,6 +215,11 @@ export default function PageViewer() {
           {can("contributor") && (
             <Button size="sm" icon={<RefreshCw className="size-3.5" />} onClick={() => setRerun(true)} disabled={busy}>
               Re-read
+            </Button>
+          )}
+          {can("contributor") && meta.data?.online.active && (page.status === "done" || page.status === "partial") && (
+            <Button size="sm" variant="primary" icon={<Wand2 className="size-3.5" />} loading={enhance.isPending} onClick={() => enhance.mutate()} disabled={busy}>
+              Read with online AI
             </Button>
           )}
           {canEdit && (
@@ -297,7 +325,6 @@ export default function PageViewer() {
                     pageId={page.id}
                     language={page.manuscript.language}
                     translationAvailable={!!meta.data?.translation.available}
-                    translationMessage={meta.data?.translation.message ?? ""}
                   />
                 ))}
               </ol>
@@ -338,7 +365,6 @@ function LineRow({
   pageId,
   language,
   translationAvailable,
-  translationMessage,
 }: {
   line: Line;
   text: string;
@@ -353,7 +379,6 @@ function LineRow({
   pageId: string;
   language: string;
   translationAvailable: boolean;
-  translationMessage: string;
 }) {
   const { can } = useAuth();
   const qc = useQueryClient();
@@ -440,19 +465,17 @@ function LineRow({
                       <Pencil className="size-3.5" />
                     </IconButton>
                   )}
-                  <IconButton
-                    label={translationAvailable ? "Translate to English" : translationMessage}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!translationAvailable) {
-                        toast.info(translationMessage);
-                        return;
-                      }
-                      translate.mutate();
-                    }}
-                  >
-                    {translate.isPending ? <Spinner /> : <Languages className="size-3.5" />}
-                  </IconButton>
+                  {translationAvailable && (
+                    <IconButton
+                      label="Translate to English"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        translate.mutate();
+                      }}
+                    >
+                      {translate.isPending ? <Spinner /> : <Languages className="size-3.5" />}
+                    </IconButton>
+                  )}
                   <IconButton
                     label="Copy line"
                     onClick={(e) => {

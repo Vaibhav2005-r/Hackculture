@@ -102,13 +102,13 @@ export function ManuscriptForm({
     }
     if (!ok.length) return;
 
-    setFiles((prev) => {
-      const merged = [...prev, ...ok].slice(0, 50);
-      if (!form.title.trim() && merged.length > 0) {
-        setForm((curr) => ({ ...curr, title: fileToTitle(merged[0].name) }));
-      }
-      return merged;
-    });
+    const merged = [...files, ...ok].slice(0, 50);
+    setFiles(merged);
+    if (!form.title.trim() && merged.length > 0) {
+      const suggestion = fileToTitle(merged[0].name);
+      if (suggestion) setForm((curr) => ({ ...curr, title: suggestion }));
+      else setTimeout(() => document.getElementById("manuscript-title")?.focus(), 80);
+    }
 
     const urls = ok.map((f) => (f.type.startsWith("image/") ? URL.createObjectURL(f) : ""));
     setPreviews((prev) => [...prev, ...urls].slice(0, 50));
@@ -314,7 +314,7 @@ export function ManuscriptForm({
 
         <div className="sm:col-span-2">
           <Field label="Title" error={errors.title}>
-            <Input value={form.title} onChange={set("title")} placeholder="e.g. Bhagavad Gītā with commentary" />
+            <Input id="manuscript-title" value={form.title} onChange={set("title")} placeholder="e.g. Bhagavad Gītā with commentary" />
           </Field>
         </div>
         <Field label="Language" hint="The script is chosen from the language">

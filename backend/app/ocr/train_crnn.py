@@ -144,6 +144,9 @@ def main() -> int:
     ap.add_argument("--device", default="auto")
     ap.add_argument("--out", default=None, help="checkpoint path (default: data/crnn_sanskrt.pt)")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--hw-data", default=None, help="pickle from scripts.build_hw_lines (handwritten-style lines)")
+    ap.add_argument("--hw-per-epoch", type=int, default=9000)
+    ap.add_argument("--init", default=None, help="fine-tune from this checkpoint (same vocabulary)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
@@ -169,17 +172,26 @@ def main() -> int:
     log.info("device=%s vocab=%d real train/val/test=%d/%d/%d synth train/val=%d/%d", device, len(vocab) - 1,
              len(real_tr), len(real_va), len(real_te), len(syn_tr), len(syn_va))
 
-    model = CRNN(n_classes=len(vocab)).to(device)
+    hw = pickle.load(open(args.hw_data, "rb")) if args.hw_data else None
+    model = CRNN(n_classes=len(vocab))
+    if args.init:
+        ck0 = torch.load(args.init, map_location="cpu", weights_only=True)
+        assert ck0["vocab"] == vocab, "fine-tuning needs the same vocabulary as the checkpoint"
+        model.load_state_dict(ck0["model_state"])
+        log.info("initialised from %s", args.init)
+    model = model.to(device)
     log.info("parameters: %.2fM", sum(p.numel() for p in model.parameters()) / 1e6)
     ctc = nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-2)
-    steps_per_epoch = (len(real_tr) * args.real_repeat + args.synth_per_epoch) // args.batch_size + 2
+    steps_per_epoch = (len(real_tr) * args.real_repeat + args.synth_per_epoch + (args.hw_per_epoch if hw else 0)) // args.batch_size + 2
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=args.epochs * steps_per_epoch, pct_start=0.15)
 
     best, bad, t0 = 9e9, 0, time.time()
     history = []
     for epoch in range(1, args.epochs + 1):
         items = real_tr * args.real_repeat + rng.sample(syn_tr, min(args.synth_per_epoch, len(syn_tr)))
+        if hw:
+            items += rng.sample(hw["train"], min(args.hw_per_epoch, len(hw["train"])))
         batches = bucketed_batches(items, args.batch_size, rng)
         model.train()
         total, n = 0.0, 0
@@ -205,15 +217,19 @@ def main() -> int:
             torch.mps.empty_cache()
         cer_real, acc_real = evaluate(model, real_va, vocab, device)
         cer_syn, _ = evaluate(model, syn_va[:600], vocab, device)
-        history.append({"epoch": epoch, "train_loss": total / n, "val_cer_real": cer_real, "val_cer_synth": cer_syn})
-        log.info("== epoch %d  loss %.3f  real val CER %.2f%% (exact %.1f%%)  synth val CER %.2f%%  [%.1f min]",
-                 epoch, total / n, 100 * cer_real, 100 * acc_real, 100 * cer_syn, (time.time() - t0) / 60)
-        if cer_real < best:
-            best, bad = cer_real, 0
+        cer_hw = evaluate(model, hw["val"][:700], vocab, device)[0] if hw else 0.0
+        # Model selection: printed-Sanskrit CER, plus handwritten CER when that data is used, so the
+        # model cannot trade one for the other unnoticed.
+        score = cer_real + cer_hw
+        history.append({"epoch": epoch, "train_loss": total / n, "val_cer_real": cer_real, "val_cer_synth": cer_syn, "val_cer_hw": cer_hw})
+        log.info("== epoch %d  loss %.3f  real val CER %.2f%% (exact %.1f%%)  synth val CER %.2f%%  handwritten val CER %.2f%%  [%.1f min]",
+                 epoch, total / n, 100 * cer_real, 100 * acc_real, 100 * cer_syn, 100 * cer_hw, (time.time() - t0) / 60)
+        if score < best:
+            best, bad = score, 0
             out_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = out_path.with_suffix(".pt.tmp")
             torch.save({"model_state": {k: v.cpu() for k, v in model.state_dict().items()}, "vocab": vocab,
-                        "scripts": ["devanagari"], "val_cer": float(cer_real), "val_acc": float(1 - cer_real),
+                        "scripts": ["devanagari"], "val_cer": float(cer_real), "val_acc": float(1 - cer_real), "val_cer_hw": float(cer_hw),
                         "val_loss": float(total / n), "n_examples": len(real_tr) + len(syn_tr), "epochs": epoch}, tmp)
             os.replace(tmp, out_path)
             log.info("saved best checkpoint (real val CER %.2f%%)", 100 * cer_real)
@@ -232,7 +248,8 @@ def main() -> int:
     model.to(device)
     te_cer, te_acc = evaluate(model, real_te, vocab, device)
     sy_cer, sy_acc = evaluate(model, syn_va, vocab, device)
-    metrics = {"test_real_cer": te_cer, "test_real_exact": te_acc, "n_test_real": len(real_te),
+    hw_cer = evaluate(model, hw["test"], vocab, device)[0] if hw else None
+    metrics = {"test_handwritten_cer": hw_cer, "test_real_cer": te_cer, "test_real_exact": te_acc, "n_test_real": len(real_te),
                "synth_val_cer": sy_cer, "synth_val_exact": sy_acc, "best_val_cer_real": best,
                "epochs_run": len(history), "minutes": (time.time() - t0) / 60, "history": history}
     (out_path.parent / "crnn_metrics.json").write_text(json.dumps(metrics, indent=2))

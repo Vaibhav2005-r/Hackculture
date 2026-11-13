@@ -10,7 +10,11 @@ from sqlalchemy import delete
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Job, Line, Manuscript, Page
+from app.ocr import chain
 from app.ocr.chain import NoEngineAvailable
+from app.ocr.online import OnlineError, align, read_page
+from app.ocr.postprocess import normalize_text
+from app.services import runtime
 from app.ocr.metrics import cer, wer
 from app.ocr.pipeline import run_page_ocr
 from app.services import audit, jobs, search
@@ -33,17 +37,88 @@ def run_job(job_id: str) -> None:
     try:
         if kind == "ocr":
             engine_used, result = _ocr(job_id)
+        elif kind == "enhance":
+            engine_used, result = _enhance(job_id)
         elif kind == "benchmark":
             engine_used, result = _benchmark(job_id)
         else:
             raise PermanentError(f"unknown job kind {kind}")
         jobs.finish(job_id, engine_used, result)
+        if kind == "ocr":
+            _maybe_queue_enhance(job_id)
+    except OnlineError as exc:  # already retried inside read_page; a 3-minute retry loop helps nobody
+        log.warning("job %s: online reading failed: %s", job_id, exc)
+        chain.breaker.failure("nvidia")
+        jobs.fail(job_id, f"Online reading failed ({exc}). The offline reading is unchanged.", retryable=False)
     except (PermanentError, NoEngineAvailable) as exc:
         log.warning("job %s failed permanently: %s", job_id, exc)
         jobs.fail(job_id, str(exc), retryable=False)
     except Exception as exc:
         log.exception("job %s crashed", job_id)
         jobs.fail(job_id, f"{type(exc).__name__}: {exc}", retryable=True)
+
+
+def _maybe_queue_enhance(ocr_job_id: str) -> None:
+    """When online mode is on, follow every automatic local reading with an online pass."""
+    if not runtime.online_active() or chain.breaker.is_open("nvidia"):
+        return
+    with SessionLocal() as db:
+        job = db.get(Job, ocr_job_id)
+        if not job or job.status != "done" or job.engine_requested not in ("auto", "online"):
+            return
+        jobs.enqueue(db, kind="enhance", page_id=job.page_id, engine="nvidia", user_id=job.created_by, touch_page=False)
+        db.commit()
+
+
+def _enhance(job_id: str) -> tuple[str, dict]:
+    """Replace unverified local readings with the hosted VLM's transcription of the page."""
+    if not runtime.online_active():
+        raise PermanentError("online reading is switched off (offline mode)")
+    with SessionLocal() as db:
+        job = db.get(Job, job_id)
+        page = db.get(Page, job.page_id) if job.page_id else None
+        if not page:
+            raise PermanentError("page no longer exists")
+        ms = db.get(Manuscript, page.manuscript_id)
+        script, key = ms.script, page.normalized_key or page.image_key
+        local = [(ln.id, ln.text, ln.verified) for ln in db.query(Line).filter(Line.page_id == page.id).order_by(Line.line_no)]
+    if not local:
+        raise PermanentError("this page has no line boxes yet; run the normal reading first")
+    jobs.report(job_id, 10, "Sending the page to the online reader")
+    image = load_image(key)
+    label = {"devanagari": "Devanagari (Sanskrit / Prakrit / Hindi)"}.get(script, script)
+    online_lines = read_page(image, label)
+    chain.breaker.success("nvidia")
+    jobs.report(job_id, 85, "Placing the transcription on the line boxes")
+    pairs = align([t for _, t, _ in local], online_lines)
+    replaced = 0
+    with SessionLocal() as db:
+        page = db.get(Page, job.page_id)
+        if not page:
+            raise PermanentError("page was deleted while processing")
+        changed = []
+        for i, j in pairs:
+            ln = db.get(Line, local[i][0])
+            if ln is None or ln.verified:
+                continue
+            text = normalize_text(online_lines[j], script)
+            if text and text != ln.text:
+                ln.text = ln.ocr_text = text
+                ln.confidence, ln.engine = 0.8, "nvidia"
+                changed.append(ln)
+                replaced += 1
+        db.flush()
+        search.index_lines(db, changed)
+        matched = len(pairs) / max(len(local), 1)
+        page.engine = "nvidia+local"
+        page.status = "done" if matched >= 0.7 else "partial"
+        page.quality_note = "" if matched >= 0.7 else f"online reading matched only {len(pairs)} of {len(local)} line boxes"
+        scores = [ln.confidence for ln in page.lines if ln.text]
+        page.mean_confidence = round(float(np.mean(scores)), 4) if scores else page.mean_confidence
+        audit.record(db, job.created_by, "ocr.enhanced", "page", page.id, replaced=replaced, online_lines=len(online_lines))
+        db.commit()
+    return "nvidia", {"replaced": replaced, "matched": len(pairs), "local_lines": len(local), "online_lines": len(online_lines),
+                      "model": get_settings().nvidia_model}
 
 
 def resolve_auto_engine(engine: str, material: str) -> str:

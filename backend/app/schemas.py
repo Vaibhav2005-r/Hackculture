@@ -128,6 +128,10 @@ class ManuscriptPatch(BaseModel):
         return v
 
 
+class OnlineIn(BaseModel):
+    enabled: bool
+
+
 class OcrIn(BaseModel):
     engine: str = "auto"
 
