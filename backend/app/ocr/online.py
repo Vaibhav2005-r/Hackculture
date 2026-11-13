@@ -59,7 +59,7 @@ def clean_lines(text: str) -> list[str]:
     return lines
 
 
-def read_page(image: np.ndarray, script: str = "Devanagari") -> list[str]:
+def read_page(image: np.ndarray, script: str = "Devanagari", beat=None) -> list[str]:
     """Transcribe a page with the configured hosted VLM.  Raises OnlineError on any failure."""
     s = get_settings()
     if not s.nvidia_api_key or s.offline_mode:
@@ -77,6 +77,8 @@ def read_page(image: np.ndarray, script: str = "Devanagari") -> list[str]:
     for attempt, wait in enumerate((0, 5, 15)):
         if wait:
             time.sleep(wait)
+        if beat:
+            beat()  # extends the job lease so no other worker picks this job up mid-request
         try:
             r = httpx.post(f"{s.nvidia_base_url}/chat/completions", json=body, timeout=s.nvidia_timeout_s,
                            headers={"Authorization": f"Bearer {s.nvidia_api_key}"})

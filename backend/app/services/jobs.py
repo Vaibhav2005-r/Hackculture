@@ -65,7 +65,9 @@ def enqueue(
     return job, True
 
 
-def claim_next(worker_id: str) -> str | None:
+def claim_next(worker_id: str, lane: str = "all") -> str | None:
+    """Claim the oldest runnable job.  Lanes keep slow online jobs from blocking the fast offline ones:
+    "fast" never takes `enhance` jobs, "online" takes only those, "all" takes everything."""
     settings = get_settings()
     now = utcnow()
     with SessionLocal() as db:
@@ -73,6 +75,10 @@ def claim_next(worker_id: str) -> str | None:
             (Job.status == "queued") & (Job.available_at <= now),
             (Job.status == "running") & (Job.locked_until < now),  # lease expired: worker died
         )
+        if lane == "fast":
+            claimable = claimable & (Job.kind != "enhance")
+        elif lane == "online":
+            claimable = claimable & (Job.kind == "enhance")
         candidate = db.scalar(select(Job.id).where(claimable).order_by(Job.created_at).limit(1))
         if not candidate:
             return None

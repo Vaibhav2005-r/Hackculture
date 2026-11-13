@@ -250,7 +250,7 @@ def test_online_reading_is_opt_in_and_never_overwrites_verified_lines(client, co
     monkeypatch.setattr(get_settings(), "nvidia_api_key", "test-key")  # settings are cached per process
     assert client.patch(f"{API}/admin/online", json={"enabled": True}, headers=admin).json()["active"] is True
     ms = client.post(f"{API}/manuscripts", json={"title": "Online enhance check"}, headers=contributor).json()
-    up = client.post(f"{API}/manuscripts/{ms['id']}/pages", files=[("files", ("p.jpg", _png(123), "image/jpeg"))], data={"auto_ocr": "true"}, headers=contributor).json()
+    up = client.post(f"{API}/manuscripts/{ms['id']}/pages", files=[("files", ("p.jpg", _png(123), "image/jpeg"))], data={"auto_ocr": "true", "engine": "ppocr"}, headers=contributor).json()  # explicit engine: no automatic online pass
     _wait(client, up["jobs"][0]["id"])
     page = client.get(f"{API}/pages/{up['pages'][0]['id']}").json()
     n = len(page["lines"])
@@ -263,7 +263,7 @@ def test_online_reading_is_opt_in_and_never_overwrites_verified_lines(client, co
     import app.services.handlers as handlers
 
     online_text = [f"ऑनलाइन पंक्ति संख्या {i}" for i in range(n)]
-    monkeypatch.setattr(handlers, "read_page", lambda image, script: online_text)
+    monkeypatch.setattr(handlers, "read_page", lambda image, script, beat=None: online_text)
     r = client.post(f"{API}/pages/{page['id']}/enhance", headers=contributor)
     assert r.status_code == 202, r.text
     done = _wait(client, r.json()["job"]["id"])

@@ -90,8 +90,8 @@ function OnlineCard() {
         icon={online.active ? <Wifi className="size-4" /> : <WifiOff className="size-4" />}
       />
       <div className="space-y-3 px-5 py-4 text-[13px]">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-medium text-ink">{online.active ? "Online AI reading: ON" : "Offline mode: ON"}</span>
+        <div className="flex flex-col items-start gap-1.5">
+          <span className="font-medium text-ink">{online.active ? "Online AI reading is ON" : "Offline mode is ON"}</span>
           {online.active ? <Badge tone="warn" dot>Images sent to {online.provider}</Badge> : <Badge tone="good" dot>Private</Badge>}
         </div>
         <p className="text-[12px] text-muted">

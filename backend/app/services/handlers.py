@@ -87,8 +87,10 @@ def _enhance(job_id: str) -> tuple[str, dict]:
     jobs.report(job_id, 10, "Sending the page to the online reader")
     image = load_image(key)
     label = {"devanagari": "Devanagari (Sanskrit / Prakrit / Hindi)"}.get(script, script)
-    online_lines = read_page(image, label)
+    online_lines = read_page(image, label, beat=lambda: jobs.report(job_id, 30, "Waiting for the online reader"))
     chain.breaker.success("nvidia")
+    if not runtime.online_active():  # switched to offline mode while we were waiting: discard the answer
+        raise PermanentError("online reading was switched off while this page was being read; nothing was changed")
     jobs.report(job_id, 85, "Placing the transcription on the line boxes")
     pairs = align([t for _, t, _ in local], online_lines)
     replaced = 0

@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     nvidia_api_key: str = ""
     nvidia_model: str = "google/gemma-4-31b-it"
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nvidia_timeout_s: float = 180.0
+    nvidia_timeout_s: float = 150.0  # per attempt; must stay well below job_lease_seconds
     offline_mode: bool = False  # hard switch: never contact any online service
     # A page is reported PARTIAL (not COMPLETE) when most text boxes were rejected or the read is weak.
     ocr_max_dropped_fraction: float = 0.5
