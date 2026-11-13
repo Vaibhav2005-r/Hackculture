@@ -16,6 +16,7 @@ from app.config import BACKEND_DIR, get_settings
 from app.db import get_db
 from app.models import AuditLog, Correction, Job, Line, Manuscript, Page, Site, Trail, User
 from app.ocr.engines import SCRIPTS, all_engines, list_engines
+from app.api.corrections import _flagged_filter
 from app.ratelimit import limit
 from app.schemas import BenchmarkIn, OnlineIn, RoleIn
 from app.security import current_user, require_role
@@ -274,6 +275,10 @@ def overview(db: Session = Depends(get_db)):
         "mean_confidence": round(conf, 4) if conf else None,
         "confidence_buckets": buckets,
         "pending_corrections": db.scalar(select(func.count(Correction.id)).where(Correction.status == "pending")) or 0,
+        "flagged_lines": db.scalar(
+            select(func.count(Line.id)).join(Page, Line.page_id == Page.id).where(_flagged_filter(get_settings().review_confidence_threshold))
+        )
+        or 0,
         "sites": db.scalar(select(func.count(Site.id))) or 0,
         "trails": db.scalar(select(func.count(Trail.id))) or 0,
         "contributors": db.scalar(select(func.count(func.distinct(Correction.user_id)))) or 0,

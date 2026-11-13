@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     demo_password: str = "Lipi@2026"
     admin_password: str = ""  # empty = same as demo_password
     demo_roles: str = "admin,curator,contributor,viewer"  # which one-click demo buttons the login page offers
+    # Lines below this confidence (yellow and red in the UI) are listed in the review queue automatically.
+    review_confidence_threshold: float = 0.85
     # A page is reported PARTIAL (not COMPLETE) when most text boxes were rejected or the read is weak.
     ocr_max_dropped_fraction: float = 0.5
     ocr_min_mean_confidence: float = 0.5

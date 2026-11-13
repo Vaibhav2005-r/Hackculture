@@ -90,6 +90,7 @@ export interface Line {
   engine: string;
   verified: boolean;
   pending_corrections: number;
+  flagged_lines?: number;
 }
 
 export interface PageDetail extends Page {
@@ -152,6 +153,20 @@ export interface Correction {
   manuscript_id?: string | null;
   manuscript_title?: string | null;
   script?: string | null;
+}
+
+export interface FlaggedLine {
+  line_id: string;
+  page_id: string;
+  line_no: number;
+  page_no: number;
+  text: string;
+  confidence: number;
+  tone: "red" | "yellow";
+  engine: string;
+  manuscript_id: string;
+  manuscript_title: string;
+  script: string;
 }
 
 export interface SearchResult {

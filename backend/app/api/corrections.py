@@ -46,6 +46,73 @@ def list_corrections(
     return {"counts": counts, "items": _with_context(db, list(items))}
 
 
+def _flagged_filter(max_conf: float):
+    pending_lines = select(Correction.line_id).where(Correction.status == "pending")
+    return (
+        (Line.verified.is_(False))
+        & (Line.confidence < max_conf)
+        & (Line.text != "")
+        & (Page.status.in_(("done", "partial")))
+        & (Line.id.not_in(pending_lines))  # lines with a pending suggestion are already in the other tab
+    )
+
+
+@router.get("/flagged")
+def flagged_lines(
+    limit_: int = Query(50, alias="limit", ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(require_role("curator")),
+    db: Session = Depends(get_db),
+):
+    """Unverified lines the machine is not sure about (yellow and red), least confident first."""
+    from app.config import get_settings
+
+    max_conf = get_settings().review_confidence_threshold
+    where = _flagged_filter(max_conf)
+    total = db.scalar(select(func.count(Line.id)).join(Page, Line.page_id == Page.id).where(where)) or 0
+    rows = db.execute(
+        select(Line, Page, Manuscript)
+        .join(Page, Line.page_id == Page.id)
+        .join(Manuscript, Page.manuscript_id == Manuscript.id)
+        .where(where)
+        .order_by(Line.confidence.asc(), Manuscript.title, Page.page_no, Line.line_no)
+        .limit(limit_)
+        .offset(offset)
+    ).all()
+    return {
+        "total": total,
+        "threshold": max_conf,
+        "items": [
+            {
+                "line_id": ln.id,
+                "page_id": pg.id,
+                "line_no": ln.line_no,
+                "page_no": pg.page_no,
+                "text": ln.text,
+                "confidence": ln.confidence,
+                "tone": "red" if ln.confidence < 0.6 else "yellow",
+                "engine": ln.engine,
+                "manuscript_id": ms.id,
+                "manuscript_title": ms.title,
+                "script": ms.script,
+            }
+            for ln, pg, ms in rows
+        ],
+    }
+
+
+@router.post("/flagged/{line_id}/confirm")
+def confirm_flagged_line(line_id: str, user: User = Depends(require_role("curator")), db: Session = Depends(get_db)):
+    """A curator checked the line and the text is right as it stands: mark it verified."""
+    line = get_or_404(db, Line, line_id, "Line")
+    if line.verified:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This line is already verified")
+    line.verified = True
+    audit.record(db, user.id, "line.confirmed", "line", line.id, page_id=line.page_id)
+    db.commit()
+    return {"line_id": line.id, "verified": True}
+
+
 @router.get("/mine")
 def my_corrections(user: User = Depends(current_user), db: Session = Depends(get_db)):
     items = db.scalars(

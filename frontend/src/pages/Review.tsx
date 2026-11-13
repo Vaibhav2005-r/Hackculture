@@ -7,15 +7,22 @@ import { Diff } from "../components/Diff";
 import { Badge, Button, Card, EmptyState, ErrorBox, Input, PageHeader, Skeleton, StatusBadge, Tabs, Textarea } from "../components/ui";
 import { api } from "../lib/api";
 import { timeAgo } from "../lib/format";
-import type { Correction } from "../lib/types";
+import { pct } from "../lib/format";
+import type { Correction, FlaggedLine } from "../lib/types";
 
-type Status = "pending" | "approved" | "rejected" | "all";
+type Status = "flagged" | "pending" | "approved" | "rejected" | "all";
 
 export default function Review() {
-  const [status, setStatus] = useState<Status>("pending");
+  const [status, setStatus] = useState<Status>("flagged");
   const q = useQuery({
     queryKey: ["corrections", status],
-    queryFn: () => api.get<{ counts: Record<string, number>; items: Correction[] }>(`/corrections?status=${status}&limit=100`),
+    queryFn: () => api.get<{ counts: Record<string, number>; items: Correction[] }>(`/corrections?status=${status === "flagged" ? "pending" : status}&limit=100`),
+    enabled: status !== "flagged",
+  });
+  const flagged = useQuery({
+    queryKey: ["flagged"],
+    queryFn: () => api.get<{ total: number; threshold: number; items: FlaggedLine[] }>("/corrections/flagged?limit=100"),
+    refetchInterval: 30000,
   });
   const counts = q.data?.counts ?? {};
 
@@ -23,18 +30,39 @@ export default function Review() {
     <div className="mx-auto max-w-[1040px] px-4 py-7 sm:px-8">
       <PageHeader
         title="Review queue"
-        subtitle="Contributors suggest fixes for lines the machine misread. Approving a suggestion updates the text, marks the line verified, and adds it to the training dataset."
+        subtitle="Lines the machine is unsure about (yellow and red) arrive here automatically. Confirm a line that is right, fix one that is wrong, or approve a contributor's suggestion. Each decision marks the line verified and adds it to the training dataset."
       />
       <Tabs<Status>
         value={status}
         onChange={setStatus}
         tabs={[
+          { value: "flagged", label: <>Needs review <span className="ml-1 text-muted tabular-nums">{flagged.data?.total ?? 0}</span></> },
           { value: "pending", label: <>Pending <span className="ml-1 text-muted tabular-nums">{counts.pending ?? 0}</span></> },
           { value: "approved", label: <>Approved <span className="ml-1 text-muted tabular-nums">{counts.approved ?? 0}</span></> },
           { value: "rejected", label: <>Rejected <span className="ml-1 text-muted tabular-nums">{counts.rejected ?? 0}</span></> },
           { value: "all", label: "All" },
         ]}
       />
+      {status === "flagged" ? (
+        <div className="mt-5 space-y-3">
+          {flagged.error ? (
+            <ErrorBox error={flagged.error} onRetry={() => flagged.refetch()} />
+          ) : flagged.isLoading ? (
+            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-40" />)
+          ) : flagged.data?.items.length ? (
+            <>
+              <p className="text-[12.5px] text-muted">
+                {flagged.data.total} unverified {flagged.data.total === 1 ? "line" : "lines"} below {pct(flagged.data.threshold)} confidence, least confident first.
+              </p>
+              {flagged.data.items.map((f) => <FlaggedCard key={f.line_id} f={f} />)}
+            </>
+          ) : (
+            <Card>
+              <EmptyState icon={<ClipboardCheck className="size-5" />} title="Nothing needs review" body="Every line is either confident or already verified." />
+            </Card>
+          )}
+        </div>
+      ) : (
       <div className="mt-5 space-y-3">
         {q.error ? (
           <ErrorBox error={q.error} onRetry={() => q.refetch()} />
@@ -48,7 +76,86 @@ export default function Review() {
           </Card>
         )}
       </div>
+      )}
     </div>
+  );
+}
+
+function FlaggedCard({ f }: { f: FlaggedLine }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(f.text);
+  const done = () => {
+    qc.invalidateQueries({ queryKey: ["flagged"] });
+    qc.invalidateQueries({ queryKey: ["corrections-count"] });
+    qc.invalidateQueries({ queryKey: ["overview"] });
+    qc.invalidateQueries({ queryKey: ["page", f.page_id] });
+  };
+  const confirm = useMutation({
+    mutationFn: () => api.post(`/corrections/flagged/${f.line_id}/confirm`),
+    onSuccess: () => {
+      toast.success("Confirmed. The line is now verified.");
+      done();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const fix = useMutation({
+    mutationFn: () => api.post(`/lines/${f.line_id}/corrections`, { text: text.trim() }),
+    onSuccess: () => {
+      toast.success("Fixed. The line is now verified.");
+      done();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const tone = f.tone === "red" ? "bad" : "warn";
+  return (
+    <Card className="rise overflow-hidden">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3 text-[12.5px] text-muted">
+        <span className="font-medium text-ink">{f.manuscript_title}</span>
+        <span>· page {f.page_no}, line {f.line_no}</span>
+        <span className="ml-auto flex items-center gap-2">
+          <Badge tone={tone} dot>{f.tone === "red" ? "Low" : "Review"} · {pct(f.confidence)}</Badge>
+          <Link to={`/pages/${f.page_id}?line=${f.line_id}`} className="inline-flex items-center gap-1 text-accent hover:underline">
+            Open <ExternalLink className="size-3" />
+          </Link>
+        </span>
+      </div>
+      <div className="grid gap-4 p-5 md:grid-cols-[1fr_1fr]">
+        <div>
+          <div className="eyebrow mb-1.5">Line image</div>
+          <img src={`/api/v1/lines/${f.line_id}/image`} alt="Line" className="max-h-28 w-full rounded-lg border border-line bg-surface-2 object-contain" onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
+        </div>
+        <div className="space-y-3">
+          <div>
+            <div className="eyebrow mb-1">Machine reading ({f.engine || "ocr"})</div>
+            {editing ? (
+              <Textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} className="script-text text-[16px]" autoFocus />
+            ) : (
+              <p className="script-text text-[17px] leading-relaxed text-ink">{f.text}</p>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-t border-line bg-surface-2/50 px-5 py-3">
+        <div className="ml-auto flex gap-2">
+          {editing ? (
+            <>
+              <Button size="sm" onClick={() => { setEditing(false); setText(f.text); }}>Cancel</Button>
+              <Button size="sm" variant="primary" icon={<Check className="size-3.5" />} loading={fix.isPending} disabled={!text.trim() || text.trim() === f.text} onClick={() => fix.mutate()}>
+                Save fix
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => setEditing(true)}>Fix</Button>
+              <Button size="sm" variant="primary" icon={<Check className="size-3.5" />} loading={confirm.isPending} onClick={() => confirm.mutate()}>
+                Looks correct
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </Card>
   );
 }
 

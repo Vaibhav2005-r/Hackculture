@@ -289,3 +289,39 @@ def test_line_alignment_handles_ornaments_and_missing_lines():
     online = ["णमो अरिहंताणं", "णमो सिद्धाणं", "णमो आयरियाणं"]
     assert align(local, online) == [(0, 0), (1, 1), (2, 2)]
     assert align(["णमो सिद्धाणं", "णमो आयरियाणं"], online) == [(0, 1), (1, 2)]  # local missed the first line
+
+
+def test_low_confidence_lines_reach_the_review_queue_automatically(client, contributor, curator):
+    from app.db import SessionLocal
+    from app.models import Line
+
+    ms = client.post(f"{API}/manuscripts", json={"title": "Flagged lines check"}, headers=contributor).json()
+    up = client.post(f"{API}/manuscripts/{ms['id']}/pages", files=[("files", ("p.jpg", _png(555), "image/jpeg"))], data={"auto_ocr": "true", "engine": "ppocr"}, headers=contributor).json()
+    _wait(client, up["jobs"][0]["id"])
+    page = client.get(f"{API}/pages/{up['pages'][0]['id']}").json()
+    ids = [ln["id"] for ln in page["lines"]]
+    assert len(ids) >= 3
+    # force one red, one yellow and one green line
+    with SessionLocal() as db:
+        for lid, conf in zip(ids[:3], (0.2, 0.75, 0.97)):
+            db.get(Line, lid).confidence = conf
+        db.commit()
+
+    assert client.get(f"{API}/corrections/flagged", headers=contributor).status_code == 403
+    r = client.get(f"{API}/corrections/flagged", params={"limit": 200}, headers=curator).json()
+    mine = {i["line_id"]: i for i in r["items"] if i["page_id"] == page["id"]}
+    assert mine[ids[0]]["tone"] == "red" and mine[ids[1]]["tone"] == "yellow" and ids[2] not in mine
+    assert r["items"] == sorted(r["items"], key=lambda i: i["confidence"])  # least confident first
+    assert client.get(f"{API}/stats/overview").json()["flagged_lines"] >= 2
+
+    # confirming a line removes it from the queue and marks it verified
+    assert client.post(f"{API}/corrections/flagged/{ids[1]}/confirm", headers=curator).status_code == 200
+    after = client.get(f"{API}/corrections/flagged", params={"limit": 200}, headers=curator).json()
+    assert ids[1] not in [i["line_id"] for i in after["items"]]
+    assert next(ln for ln in client.get(f"{API}/pages/{page['id']}").json()["lines"] if ln["id"] == ids[1])["verified"]
+    assert client.post(f"{API}/corrections/flagged/{ids[1]}/confirm", headers=curator).status_code == 409
+
+    # a suggestion on a flagged line moves it to the "pending" tab instead of listing it twice
+    client.post(f"{API}/lines/{ids[0]}/corrections", json={"text": "सुधारित पाठ"}, headers=contributor)
+    again = client.get(f"{API}/corrections/flagged", params={"limit": 200}, headers=curator).json()
+    assert ids[0] not in [i["line_id"] for i in again["items"]]

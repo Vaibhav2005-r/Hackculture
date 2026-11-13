@@ -34,6 +34,7 @@ interface Overview {
   mean_confidence: number | null;
   confidence_buckets: { high: number; medium: number; low: number };
   pending_corrections: number;
+  flagged_lines?: number;
   sites: number;
   trails: number;
   contributors: number;
@@ -161,7 +162,7 @@ export default function Dashboard() {
             <Stat label="Mean confidence" value={pct(d.mean_confidence)} hint="across all recognised lines" icon={<Gauge className="size-4" />} tone="good" />
             <Stat
               label="Awaiting review"
-              value={d.pending_corrections}
+              value={d.pending_corrections + (d.flagged_lines ?? 0)}
               hint={d.avg_ocr_ms ? `Avg OCR ${duration(d.avg_ocr_ms)} per page` : "suggested corrections"}
               icon={<ClipboardCheck className="size-4" />}
               tone="warn"
@@ -311,7 +312,7 @@ export default function Dashboard() {
         {[
           { to: "/search?q=dharma", title: "Search across scripts", body: "Type in English, find Devanagari.", icon: <BookOpenText className="size-4" /> },
           { to: "/lab", title: "See the OCR Lab", body: "Measured accuracy, with and without our pipeline.", icon: <FlaskConical className="size-4" /> },
-          { to: can("curator") ? "/review" : "/manuscripts", title: can("curator") ? "Review corrections" : "Browse manuscripts", body: can("curator") ? `${d?.pending_corrections ?? 0} waiting for you.` : "Open a folio and read it line by line.", icon: <ClipboardCheck className="size-4" /> },
+          { to: can("curator") ? "/review" : "/manuscripts", title: can("curator") ? "Review corrections" : "Browse manuscripts", body: can("curator") ? `${(d?.pending_corrections ?? 0) + (d?.flagged_lines ?? 0)} waiting for you.` : "Open a folio and read it line by line.", icon: <ClipboardCheck className="size-4" /> },
         ].map((c) => (
           <Link key={c.title} to={c.to} className="group rounded-2xl border border-line bg-surface p-4 transition-colors hover:border-line-strong">
             <div className="flex items-center justify-between">

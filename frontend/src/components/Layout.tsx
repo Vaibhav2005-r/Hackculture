@@ -53,7 +53,13 @@ export function Layout() {
   const [tip] = useState(() => TIPS[Math.floor(Math.random() * TIPS.length)]);
   const pending = useQuery({
     queryKey: ["corrections-count"],
-    queryFn: () => api.get<{ counts: Record<string, number> }>("/corrections?status=pending&limit=1"),
+    queryFn: async () => {
+      const [p, f] = await Promise.all([
+        api.get<{ counts: Record<string, number> }>("/corrections?status=pending&limit=1"),
+        api.get<{ total: number }>("/corrections/flagged?limit=1"),
+      ]);
+      return (p.counts?.pending ?? 0) + f.total;
+    },
     enabled: can("curator"),
     refetchInterval: 30000,
   });
@@ -72,7 +78,7 @@ export function Layout() {
     {
       label: "Review",
       items: [
-        { to: "/review", label: "Review queue", icon: <ClipboardCheck />, role: "curator", badge: pending.data?.counts?.pending },
+        { to: "/review", label: "Review queue", icon: <ClipboardCheck />, role: "curator", badge: pending.data },
         { to: "/contributions", label: "My contributions", icon: <ScrollText />, role: "contributor" },
       ],
     },
