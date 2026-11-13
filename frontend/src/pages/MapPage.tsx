@@ -9,7 +9,7 @@ import { Badge, Button, Card, EmptyState, Field, IconButton, Input, Modal, Segme
 import { api, qs } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { minutes, SITE_KINDS } from "../lib/format";
-import { baseStyle, fitTo, KIND_COLOR, markerEl, useDarkClass } from "../lib/map";
+import { baseStyle, fitTo, KIND_COLOR, markerEl, siteCard, useDarkClass } from "../lib/map";
 import { useSites } from "../lib/queries";
 import type { Manuscript, Site, Trail } from "../lib/types";
 
@@ -93,11 +93,14 @@ export default function MapPage() {
     for (const s of list) {
       const n = order?.get(s.id);
       const el = markerEl(s.kind, n ? String(n) : undefined, s.id === selected || !!n);
-      el.title = s.name;
-      el.onclick = (e) => {
+      const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 18, maxWidth: "280px", className: "site-hover" }).setDOMContent(siteCard(s));
+      el.addEventListener("mouseenter", () => popup.setLngLat([s.lng, s.lat]).addTo(m));
+      el.addEventListener("mouseleave", () => popup.remove());
+      el.addEventListener("click", (e) => {
         e.stopPropagation();
+        popup.remove();
         setSelected(s.id);
-      };
+      });
       markers.current.set(s.id, new maplibregl.Marker({ element: el }).setLngLat([s.lng, s.lat]).addTo(m));
     }
   }, [list, ready, selected, trail]);

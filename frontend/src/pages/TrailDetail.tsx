@@ -8,7 +8,7 @@ import { Badge, Button, Card, ConfirmDialog, ErrorBox, PageHeader, Skeleton, Sta
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { minutes, SITE_KINDS } from "../lib/format";
-import { baseStyle, fitTo, markerEl, useDarkClass } from "../lib/map";
+import { baseStyle, fitTo, markerEl, siteCard, useDarkClass } from "../lib/map";
 import type { Trail } from "../lib/types";
 
 export default function TrailDetail() {
@@ -40,7 +40,13 @@ export default function TrailDetail() {
       const start = document.createElement("div");
       start.style.cssText = "width:16px;height:16px;border-radius:999px;background:#2e4374;border:3px solid white;box-shadow:0 0 0 5px rgb(46 67 116 / .25)";
       new maplibregl.Marker({ element: start }).setLngLat([t.start.lng, t.start.lat]).addTo(m);
-      t.stops.forEach((s, i) => new maplibregl.Marker({ element: markerEl(s.kind, String(i + 1), true) }).setLngLat([s.lng, s.lat]).addTo(m));
+      t.stops.forEach((s, i) => {
+        const el = markerEl(s.kind, String(i + 1), true);
+        const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 18, maxWidth: "280px", className: "site-hover" }).setDOMContent(siteCard(s));
+        el.addEventListener("mouseenter", () => popup.setLngLat([s.lng, s.lat]).addTo(m));
+        el.addEventListener("mouseleave", () => popup.remove());
+        new maplibregl.Marker({ element: el }).setLngLat([s.lng, s.lat]).addTo(m);
+      });
       fitTo(m, t.geometry.coordinates as [number, number][], 50);
     });
     return () => m.remove();

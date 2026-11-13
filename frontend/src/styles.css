@@ -201,6 +201,10 @@ body {
   box-shadow: var(--shadow-lg) !important;
   padding: 12px 14px !important;
 }
+.site-hover {
+  pointer-events: none; /* a hover card must never steal the pointer from the dot below it */
+  z-index: 5;
+}
 .maplibregl-popup-tip {
   border-top-color: var(--surface) !important;
   border-bottom-color: var(--surface) !important;
