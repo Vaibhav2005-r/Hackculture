@@ -50,6 +50,7 @@ Three differentiators (say them in this order, every time):
 | Reader | Error on that folio | Time | Runs offline? |
 |---|---|---|---|
 | Our CRNN (print-trained) | 106% line CER (unusable on this hand) | 0.4 s | yes |
+| Our CRNN after fine-tuning on real handwritten Hindi words (`data/crnn_hw.pt`, not the default) | 62% line CER (from 106%); 17.7% CER on held-out handwritten lines; printed-Sanskrit test CER 15.2% (was 14.4%) | 0.4 s | yes |
 | PP-OCRv5 | 39% line CER | ~2.7 s per page | yes |
 | Ensemble (CRNN + PP-OCR) | 106% — worse than PP-OCR here, which is why manuscripts use PP-OCR first | ~3 s | yes |
 | NVIDIA-hosted `google/gemma-4-31b-it` (online, optional) | **5–6% page CER**, reproduced 3×; also read the bold scribal folio plausibly | 95–135 s per page on the free hosted tier | **no** |
